@@ -36,3 +36,29 @@ def run(svc, n: int) -> dict:
     ev = svc.event(meta["event"])
     d = svc.job_change(ev["provider"], ev["payload"])
     return {**meta, "decision_id": d.get("id"), "outcome": d.get("outcome"), "state": d.get("state")}
+
+
+FOLLOWUPS = {
+    5: {
+        "replay_same_webhook": "Vendor redelivers the same webhook",
+        "other_vendor_later": "20 days later, a second vendor reports the same move with no profile URL",
+    },
+}
+
+
+def followup(svc, n: int, name: str) -> dict:
+    if name not in FOLLOWUPS.get(n, {}):
+        raise KeyError(name)
+    if name == "replay_same_webhook":
+        e = svc.event("S5")
+        out = svc.job_change(e["provider"], e["payload"])
+    else:
+        svc.advance(20)
+        out = svc.job_change("jobsignal", {
+            "event_id": "JS-5555", "person": {"full_name": "Chris Walker", "profile_url": None, "location": "San Diego"},
+            "new_role": {"company": "Redwood Plastic Surgery", "domain": "redwood-ps.example", "title": "Office Manager",
+                         "start_date": "2026-10-10"},
+            "previous_role": {"company": "Coastal Laser Center", "title": None},
+            "detected_at": svc.clock.iso()})
+    return {"followup": name, "description": FOLLOWUPS[n][name], "result": out,
+            "slack_messages_total": len(svc.slack.messages)}

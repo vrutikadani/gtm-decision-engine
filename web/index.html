@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GTM Decision Engine</title>
+<meta name="description" content="Synthetic reference implementation: champion tracking, GTM briefs and pipeline decisions with explicit uncertainty, feedback and evaluation.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%233b5bdb'/%3E%3Cpath d='M4 8h8M8 4v8' stroke='white' stroke-width='2'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <span class="logo" aria-hidden="true"></span>
+    <div>
+      <div class="title">GTM Decision Engine</div>
+      <div class="sub">Champion tracking · GTM briefs · pipeline decisions</div>
+    </div>
+  </div>
+  <div class="top-right">
+    <span id="mode" class="pill">starting…</span>
+    <span id="clock" class="pill mono"></span>
+    <button id="reset" class="btn">Reset demo</button>
+  </div>
+</header>
+<div class="notice">Synthetic reference implementation demonstrating GTM system architecture, decision boundaries, evaluation, and reliability. No employer data or proprietary production logic is included.</div>
+<div class="layout">
+  <nav class="side" id="side">
+    <div class="side-h">Demo scenarios</div>
+    <div id="scenario-list"></div>
+    <div class="side-h">System</div>
+    <a href="#/slack" data-view="slack">Seller inbox (Slack)</a>
+    <a href="#/decisions" data-view="decisions">Decisions</a>
+    <a href="#/reviews" data-view="reviews">Review queue <span id="review-count" class="count"></span></a>
+    <a href="#/brief" data-view="brief">GTM brief</a>
+    <a href="#/reliability" data-view="reliability">Reliability</a>
+    <a href="#/failures" data-view="failures">Failure injection <span class="demo-tag">DEMO ONLY</span></a>
+    <a href="#/data" data-view="data">Data explorer</a>
+    <a href="#/architecture" data-view="architecture">Architecture</a>
+    <div class="side-foot">
+      <a href="https://github.com/vrutikadani/gtm-decision-engine" target="_blank" rel="noopener">Source on GitHub</a>
+      <a id="api-docs" href="#" target="_blank" rel="noopener" hidden>API docs (/docs)</a>
+    </div>
+  </nav>
+  <main id="main">
+    <div class="loading" id="loading">
+      <div class="spinner"></div>
+      <div id="loading-step">Loading…</div>
+      <div class="muted small" id="loading-note"></div>
+    </div>
+  </main>
+</div>
+<script src="app.js"></script>
+</body>
+</html>
