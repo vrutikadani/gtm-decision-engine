@@ -12,4 +12,3 @@
 - RevOps can review plays as config, with an eval run, without reading code.
 - Every card names its play id, which makes outcome reporting per play possible.
 - Cost: less flexibility. A situation no play covers gets SUPPRESS, not a creative suggestion. I think that is the right default.
-

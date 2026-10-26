@@ -12,4 +12,3 @@ All decisions happen in one Python service (`gde/service.py`, `gde/decisions/eng
 - The decision, its trace and its side effects are records in our database, not messages in a chat log.
 - A NEEDS_REVIEW or SUPPRESS decision exists even though no message was sent. That is how the system can show restraint.
 - Cost: we own a service. It has to be deployed, monitored and on-called. For a team with one GTM engineer, that is a real cost.
-

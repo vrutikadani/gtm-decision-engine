@@ -19,4 +19,3 @@ The public demo uses a deterministic `MockProvider`. A real model is optional (`
 - A hallucinated quote is rejected, not reported (failure injection `unsupported_brief_claim`).
 - Prompt injection can at most cause one mention to be missed. It cannot change a number, a tier or a play.
 - Cost: the model's best abilities (synthesis, nuance) are deliberately underused.
-

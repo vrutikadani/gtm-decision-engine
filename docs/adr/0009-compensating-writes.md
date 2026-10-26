@@ -10,4 +10,3 @@ Every correction reason declares which write kinds it invalidates (`COMPENSATE` 
 - `wrong_play` keeps a true association and only cancels the task.
 - Cost: every new write kind needs a defined inverse before it ships.
 - Not handled yet: a human edited the record after we created it. A production version should check last-modified-by and route conflicts to a person.
-

@@ -19,4 +19,3 @@ The thresholds come from a sweep over 24 labeled cases (`evals/threshold_sweep.p
 - REVIEW is a first-class outcome with a queue, not an error.
 - Cost: more rules to maintain. Fuzzy cases (nicknames, transliterations) go to review instead of being matched cleverly.
 - Known limitation: if our own CRM holds a wrong identifier, the resolver cannot know. The seller correction loop and a RevOps data-quality task cover it (scenario 5, eval case ID-23).
-

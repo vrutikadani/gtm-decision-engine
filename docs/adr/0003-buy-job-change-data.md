@@ -12,4 +12,3 @@ Vendors are adapters (`gde/providers/job_change.py`). Two vendor shapes (`jobsig
 - Adding or switching a vendor means one adapter function.
 - The same move reported by two vendors collapses into one signal (`move_key`, 14-day window).
 - Cost: vendor dependence, vendor-specific gaps (one sends no profile URL), and paying for coverage we do not use.
-

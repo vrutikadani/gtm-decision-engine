@@ -8,4 +8,3 @@ One SQLite database (`gde/store.py`): reference data, runs with a current state,
 ## Consequences
 - Simple to reason about and to demo; the transitions and audit tables give most of the history an event store would.
 - Cost: no replay-by-rebuilding-projections, and SQLite serializes writes. In production this would be Postgres with the same tables and row-level locking on runs.
-

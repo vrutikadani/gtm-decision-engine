@@ -12,4 +12,3 @@ GitHub Pages serves `web/`. The page loads Pyodide (Python compiled to WebAssemb
 - The hosted demo is the real code. It is not a mock-up, and it cannot drift: `tests/test_api.py` checks the routes, and `test_manifest_is_current` checks the file list.
 - Nothing leaves the visitor's browser, and a refresh resets everything.
 - Cost: about 10 MB on first load (a few seconds). It depends on the Pyodide CDN, so the local demo (`make demo`) and the static screenshots and video in `docs/assets/` are the fallbacks.
-

@@ -2,7 +2,7 @@
 
 Evidence-backed champion tracking, GTM intelligence, and pipeline decisions with explicit uncertainty, feedback, and evaluation.
 
-**[Live demo](https://vrutikadani.github.io/gtm-decision-engine/)** · **[Architecture](docs/ARCHITECTURE.md)** · **[Quick start](#quick-start)** · [84-second walkthrough (mp4)](docs/assets/demo.mp4)
+**[Live demo](https://vrutikadani.github.io/gtm-decision-engine/)** · **[Architecture](docs/ARCHITECTURE.md)** · **[Quick start](#quick-start)** · [84-second demo video](docs/assets/demo.mp4)
 
 [![CI](https://github.com/vrutikadani/gtm-decision-engine/actions/workflows/ci.yml/badge.svg)](https://github.com/vrutikadani/gtm-decision-engine/actions/workflows/ci.yml)
 
@@ -21,6 +21,15 @@ Something happens: a former champion changes jobs, or competitors start coming u
 | **Asks** (a person) | ambiguous identity, ownership in flux, corrections |
 
 ![Decision boundary](docs/assets/b-decision-boundary.png)
+
+## Where the hard parts are
+
+- **Uncertainty is a state, not a number in a log.** Ambiguous identity becomes `NEEDS_REVIEW` with a queue and a named reviewer. Nothing reaches a seller until a person decides (scenario 2).
+- **Every decision has a trace.** The inspector shows the inputs, the rules that fired, the model calls and their validation, the state transitions and the side effects, including for decisions that were withheld.
+- **Provenance on every claim.** Each line on a seller card, and each number in a brief, points to the CRM, warehouse, enrichment or conversation record it came from. A brief claim without a verbatim quote is rejected.
+- **Seller corrections change what happens next.** A correction excludes the wrong match under every subject key, opens a RevOps task, and undoes the CRM writes it makes untrue (scenario 5).
+- **The model has three bounded jobs.** It never picks a person, a play or an owner, and it never writes. See [ADR 0006](docs/adr/0006-llm-boundary.md).
+- **The hardest failure is documented.** A correction that stopped the mistake from repeating but left the CRM wrong ([postmortem](docs/FAILURE_POSTMORTEM.md), scenario 6).
 
 ## Six scenarios
 
@@ -115,7 +124,7 @@ CI fails on any new critical identity result. The first eval run found two real 
 | [TRADEOFFS.md](docs/TRADEOFFS.md) · [BUILD_VS_BUY.md](docs/BUILD_VS_BUY.md) | What I chose, what it costs |
 | [FAILURE_POSTMORTEM.md](docs/FAILURE_POSTMORTEM.md) | The hardest real failure found while building this |
 | [SECURITY.md](docs/SECURITY.md) | PII, prompt injection, least privilege, demo-only controls |
-| [CODE_WALKTHROUGH.md](docs/CODE_WALKTHROUGH.md) | Product concept → file → function |
+| [CODEBASE_GUIDE.md](docs/CODEBASE_GUIDE.md) | Product concept → file → function |
 
 ## Limitations
 
@@ -126,7 +135,7 @@ CI fails on any new critical identity result. The first eval run found two real 
   - checking for human edits before compensating
   - webhook signature verification
 
-Each one is discussed in the docs with what I would do.
+Each one is discussed, with what I would do, in [TRADEOFFS.md](docs/TRADEOFFS.md), [SECURITY.md](docs/SECURITY.md) and the [postmortem](docs/FAILURE_POSTMORTEM.md).
 
 ## License
 

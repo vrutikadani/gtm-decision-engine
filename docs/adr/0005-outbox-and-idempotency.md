@@ -16,4 +16,3 @@ The two dangerous moments are "Slack timed out: did the message post?" and "the 
 ## Consequences
 - At most one message and one CRM record per decision, even across crashes. Tests and failure injections cover each case.
 - Cost: one extra read per side effect, and a worker to operate.
-
