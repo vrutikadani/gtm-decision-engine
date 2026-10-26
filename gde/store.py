@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS opportunities(id TEXT PRIMARY KEY, account_id TEXT, d
 CREATE TABLE IF NOT EXISTS conversations(id TEXT PRIMARY KEY, account_id TEXT, date TEXT, doc TEXT);
 
 CREATE TABLE IF NOT EXISTS signals(
-  id TEXT PRIMARY KEY, provider TEXT, provider_event_id TEXT, subject_key TEXT, move_key TEXT,
+  id TEXT PRIMARY KEY, provider TEXT, provider_event_id TEXT, subject_key TEXT /* JSON list */, move_key TEXT,
   received_at TEXT, doc TEXT, UNIQUE(provider, provider_event_id));
 CREATE TABLE IF NOT EXISTS runs(id TEXT PRIMARY KEY, signal_id TEXT, state TEXT, updated_at TEXT, doc TEXT);
 CREATE TABLE IF NOT EXISTS transitions(run_id TEXT, seq INTEGER, from_state TEXT, to_state TEXT, at TEXT, reason TEXT);
@@ -49,6 +49,7 @@ class Store:
         self.db.row_factory = sqlite3.Row
         self.db.executescript(SCHEMA)
         self._depth = 0
+        self._after_rollback: list = []  # writes that must survive a rollback (audit of the rejection itself)
 
     # -- transactions ---------------------------------------------------------
     @contextmanager
@@ -63,13 +64,25 @@ class Store:
             self._depth -= 1
             if outer:
                 self.db.execute("COMMIT")
+                self._after_rollback = []
         except BaseException:
             self._depth -= 1
             if outer:
                 self.db.execute("ROLLBACK")
+                pending, self._after_rollback = self._after_rollback, []
+                for fn in pending:
+                    fn()
             raise
 
     # -- helpers --------------------------------------------------------------
+    def after_rollback(self, fn) -> None:
+        """Run fn now if no transaction is open, otherwise after the open one rolls back.
+        If the transaction commits instead, fn is dropped."""
+        if self._depth == 0:
+            fn()
+        else:
+            self._after_rollback.append(fn)
+
     def x(self, sql: str, args=()):
         return self.db.execute(sql, args)
 

@@ -37,6 +37,25 @@ class SimulatedCRM:
         self.api_calls += 1
         return next((r for r in self.records if r["gde_key"] == gde_key), None)
 
+    def find_prefix(self, prefix: str) -> list[dict]:
+        self.api_calls += 1
+        return [r for r in self.records if r["gde_key"].startswith(prefix)]
+
+    def revert(self, target_key: str, revert_key: str, reason: str) -> dict:
+        """Compensating write: remove an association or cancel a task we created earlier.
+        Idempotent on revert_key, like every other write."""
+        existing = self.find(revert_key)
+        if existing:
+            return {**existing, "created": False}
+        target = self.find(target_key)
+        self.api_calls += 1
+        action = "cancel_task" if target["kind"] == "create_task" else "remove_" + target["kind"]
+        target.update(reverted=True, reverted_at=self.clock.iso(), revert_reason=reason)
+        rec = {"id": f"crm-revert-{len(self.records) + 1}", "kind": "revert", "action": action,
+               "gde_key": revert_key, "target": target_key, "reason": reason, "at": self.clock.iso()}
+        self.records.append(rec)
+        return {**rec, "created": True}
+
     def upsert(self, kind: str, gde_key: str, fields: dict) -> dict:
         existing = self.find(gde_key)
         if existing:

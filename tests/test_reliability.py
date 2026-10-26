@@ -70,7 +70,6 @@ def test_crash_after_crm_write_replays_without_duplicates(svc):
     assert svc.store.one("SELECT COUNT(*) n FROM outbox WHERE status='pending'")["n"] == 0
 
 
-@pytest.mark.xfail(strict=True, reason="found 2026-10-26: audit row is rolled back with the rejected transition")
 def test_invalid_transition_is_rejected_and_audited(svc):
     d = svc.job_change(*ev(svc, "S1"))
     with pytest.raises(InvalidTransition):

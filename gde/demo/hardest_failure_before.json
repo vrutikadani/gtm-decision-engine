@@ -1,0 +1,68 @@
+{
+  "_about": "Captured from the pre-fix engine (commit 'Engine, scenarios, tests (pre-fix)'). Scenario: seller accepts the Chris Walker recommendation, then corrects it as wrong_person.",
+  "steps": [
+    {
+      "action": "job_change S5",
+      "outcome": "DELIVER",
+      "person": "P-502",
+      "account": "A-700"
+    },
+    {
+      "action": "accept",
+      "crm_writes": [
+        {
+          "id": "crm-associate_contact-1",
+          "kind": "associate_contact",
+          "gde_key": "DEC-0001:associate_contact",
+          "at": "2026-10-20T16:00:00Z",
+          "contact": "P-502",
+          "company": "A-700"
+        },
+        {
+          "id": "crm-create_task-2",
+          "kind": "create_task",
+          "gde_key": "DEC-0001:create_task",
+          "at": "2026-10-20T16:00:00Z",
+          "owner": "rep-dana",
+          "subject": "Send Chris a personal note within 5 business days and offer a 20-minute call about the new role."
+        }
+      ]
+    },
+    {
+      "action": "correct wrong_person",
+      "effects": [
+        "excluded P-502 for subject url:linkedin.example/in/chris-walker-31",
+        "RevOps data-quality task queued"
+      ],
+      "rerun_outcome": "SUPPRESS"
+    }
+  ],
+  "crm_after_correction": [
+    {
+      "id": "crm-associate_contact-1",
+      "kind": "associate_contact",
+      "gde_key": "DEC-0001:associate_contact",
+      "at": "2026-10-20T16:00:00Z",
+      "contact": "P-502",
+      "company": "A-700"
+    },
+    {
+      "id": "crm-create_task-2",
+      "kind": "create_task",
+      "gde_key": "DEC-0001:create_task",
+      "at": "2026-10-20T16:00:00Z",
+      "owner": "rep-dana",
+      "subject": "Send Chris a personal note within 5 business days and offer a 20-minute call about the new role."
+    },
+    {
+      "id": "crm-data_quality_task-3",
+      "kind": "data_quality_task",
+      "gde_key": "DEC-0001:dq",
+      "at": "2026-10-20T16:00:00Z",
+      "queue": "revops",
+      "contact": "P-502",
+      "subject": "Seller says job-change match for P-502 was the wrong person. Check the contact's profile URL and identifiers."
+    }
+  ],
+  "problem": "Future decisions were fixed (rerun = SUPPRESS), but the CRM still associates P-502 with Redwood and the seller still has the task. Nothing reversed the side effects of the accepted recommendation."
+}
