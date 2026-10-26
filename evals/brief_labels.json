@@ -1,0 +1,3 @@
+{"_about": "Hand-labeled from gde/fixtures/world.json conversations. Windows: 21 days each ending 2026-10-20.",
+ "mentions": {"Competitor Alpha": [2, 6], "Competitor Beta": [2, 1]},
+ "quarantined": ["C-116"]}

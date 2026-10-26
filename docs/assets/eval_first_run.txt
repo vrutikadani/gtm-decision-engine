@@ -1,0 +1,50 @@
+Identity resolution: 24 labeled cases
+    ID-01 MATCH    P-201  truth=P-201     0.95  scenario 1: URL, name, previous employer
+    ID-02 MATCH    P-202  truth=P-202     0.95  scenario 4
+  ~ ID-03 REVIEW   None   truth=P-201     0.73  true match without a profile URL
+    ID-04 MATCH    P-203  truth=P-203     0.95  non-champion contact, URL match
+    ID-05 MATCH    P-301  truth=P-301     0.95  decision maker, URL match
+    ID-06 NO_MATCH None   truth=None      0.00  same name, different profile URL
+    ID-07 REVIEW   None   truth=AMBIGUOUS 0.47  scenario 2: two Jordan Morales, nothing distinguishes them
+  ~ ID-08 REVIEW   None   truth=P-511     0.73  Jordan Morales from Bayview
+  ~ ID-09 REVIEW   None   truth=P-501     0.73  Jordan Morales from Coastal
+    ID-10 NO_MATCH None   truth=None      0.00  same name, URL contradicts
+  - ID-11 NO_MATCH None   truth=P-202     0.00  vendor typo in last name
+  - ID-12 NO_MATCH None   truth=P-201     0.00  name changed after marriage
+    ID-13 NO_MATCH None   truth=None      0.00  already a contact at the new company (not a move)
+    ID-14 NO_MATCH None   truth=None      0.00  unknown person
+    ID-15 REVIEW   None   truth=AMBIGUOUS 0.70  Chris Walker without URL
+  ~ ID-16 REVIEW   None   truth=P-203     0.73  Marcus without URL
+    ID-17 MATCH    P-201  truth=P-201     0.94  moved city
+    ID-18 MATCH    P-201  truth=P-201     0.89  vendor omits previous company
+    ID-19 MATCH    P-201  truth=P-201     0.92  first initial only
+    ID-20 NO_MATCH None   truth=None      0.37  same name, different person, different city
+  ~ ID-21 REVIEW   None   truth=None      0.47  same name, different person, same city
+  ~ ID-22 REVIEW   None   truth=None      0.70  same name AND same previous company, different person
+  ! ID-23 MATCH    P-502  truth=None      0.94  scenario 5: our CRM holds the wrong profile URL for this contact
+  ~ ID-24 REVIEW   None   truth=None      0.47  different person, same name, vendor has no URL, same metro, same title family
+  correct 14, safe 7, miss 2, critical 1
+  MATCH precision 7/8; sent to review 9/24
+  known limitation ID-23: The only identifier that could tell the two apart is wrong in our own CRM. The resolver cannot see that; the seller correction loop catches it (scenario 5).
+
+Decisions: 11/11 as expected
+  ok D-01 DELIVER      champion_reactivation                scenario 1
+  ok D-02 NEEDS_REVIEW None                                 scenario 2: ambiguous identity
+  ok D-03 DELIVER      champion_reactivation_with_context   scenario 4: champion + evaluation call
+  ok D-04 DELIVER      champion_reactivation                scenario 5: delivered; wrong only because CRM URL is wrong
+  ok D-05 SUPPRESS     None                                 stale signal
+  ok D-06 DELIVER      champion_assist_open_opp             champion joins account with an open deal
+  ok D-07 SUPPRESS     None                                 champion joins a Tier 3 account
+  ok D-08 SUPPRESS     None                                 contact with only webinar attendance moves
+  ok D-09 SUPPRESS     None                                 new company not in CRM
+  ok D-10 SUPPRESS     None                                 account marked do-not-contact
+  ok D-11 NEEDS_REVIEW None                                 account mid-reassignment
+
+GTM brief: 5/5 checks
+  ok Competitor Alpha counts prior/current = [2, 6]
+  ok Competitor Beta counts prior/current = [2, 1]
+  ok every citation quote appears verbatim in its source
+  ok injected instructions quarantined
+  ok fabricated quote rejected and does not change counts
+
+RESULT: PASS
