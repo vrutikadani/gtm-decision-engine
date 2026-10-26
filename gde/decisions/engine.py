@@ -17,9 +17,11 @@ from __future__ import annotations
 
 import json
 import re
+import sqlite3
 
 from .. import audit
 from ..accounts.qualification import qualify
+from ..briefs.service import INJECTION
 from ..champions.resolution import resolve
 from ..champions.validation import validate
 from ..context.truth import ContextUnavailable, account_context
@@ -64,6 +66,14 @@ class Engine:
 
     # ------------------------------------------------------------------ ingest
     def ingest(self, provider: str, payload: dict) -> dict:
+        try:
+            return self._ingest(provider, payload)
+        except sqlite3.IntegrityError:
+            # two deliveries of the same webhook raced past the check; the UNIQUE
+            # constraint on (provider, provider_event_id) is the real guard
+            return self._ingest(provider, payload)
+
+    def _ingest(self, provider: str, payload: dict) -> dict:
         jc = normalize(provider, payload)
         s = self.store
         with s.tx():
@@ -215,6 +225,9 @@ class Engine:
             for i, u in enumerate(conv["utterances"]):
                 if u["role"] != "prospect":
                     continue
+                if INJECTION.search(u["text"]):  # same quarantine as the brief pipeline
+                    audit.log(s, clock, "content_quarantined", c["run_id"], conversation=conv["id"], utterance=i)
+                    continue
                 label, conf = self.llm.classify_intent(u["text"])
                 c["llm_calls"].append({"purpose": "classify_intent", "provider": self.llm.name, "model": self.llm.model,
                                        "input": f"{conv['id']}#{i}", "output": {"label": label, "confidence": conf},
@@ -243,6 +256,16 @@ class Engine:
             return {"outcome": "SUPPRESS", "reason": "No approved play fits this situation."}
         play = next(p for p in self.plays if p["id"] == chosen["play"])
         c["play"] = play
+        # seller capacity: a card nobody has time for teaches people to ignore the channel
+        opp = ctx["open_opportunities"][0] if ctx["open_opportunities"] else None
+        owner = opp["owner_id"] if play["deliver_to"] == "opportunity_owner" and opp else acct["owner_id"]
+        today = clock.iso()[:10]
+        sent = sum(1 for d in s.docs("SELECT doc FROM decisions WHERE created_at LIKE ?", (today + "%",))
+                   if d["outcome"] == "DELIVER" and (d.get("surface") or {}).get("owner", {}).get("id") == owner)
+        if sent >= cfg["rep_daily_cap"]:
+            t.add("decision", "HOLD", f"{owner} already received {sent} cards today", f"rep_daily_cap = {cfg['rep_daily_cap']}")
+            return {"outcome": "HOLD", "retryable": True,
+                    "reason": f"{owner} is at today's limit of {cfg['rep_daily_cap']} cards; held for tomorrow."}
         return {"outcome": "DELIVER", "reason": self._reason(c)}
 
     def _reason(self, c: dict) -> str:
@@ -289,6 +312,7 @@ class Engine:
         with s.tx():
             did = s.next_id("DEC")
             surface = self._surface(c, did) if out["outcome"] == "DELIVER" else None
+            c["trace"].steps = [x for x in c["trace"].steps if x["step"] != "decision"]
             c["trace"].add("decision", out["outcome"], out["reason"])
             d = {"id": did, "run_id": run_id, "created_at": clock.iso(), "outcome": out["outcome"],
                  "reason": out["reason"], "queue": out.get("queue"), "retryable": out.get("retryable", False),

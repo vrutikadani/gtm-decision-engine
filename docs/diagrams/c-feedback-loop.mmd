@@ -1,0 +1,21 @@
+flowchart TB
+  R[Recommendation in Slack] --> S[Seller]
+  S --> A[Accept]
+  S --> X[Mark done]
+  S --> Z[Snooze]
+  S --> DM[Dismiss]
+  S --> C[Correct + reason]
+  A --> W[CRM: associate contact, create task]
+  X --> W2[CRM: complete task]
+  Z --> T[Resurface after N days]
+  DM --> SP[Suppress play for account, 30 days]
+  C --> CP[Undo CRM writes already made]
+  C --> EX[wrong_person: identity exclusion<br/>under every subject key]
+  C --> SP2[wrong_play / already_engaged: suppression]
+  EX --> RE[Re-evaluate the signal now]
+  SP --> F[Future decisions]
+  SP2 --> F
+  T --> F
+  RE --> F
+  classDef s fill:#e8edfd,stroke:#3b5bdb,color:#1d2330
+  class A,X,Z,DM,C s

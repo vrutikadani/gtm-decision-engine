@@ -97,7 +97,7 @@ def submit(svc, decision_id: str, action: str, reason: str | None = None, days: 
                 effects.append(f"cancelled {cancelled} pending CRM write-back")
             s.x("INSERT INTO outbox VALUES(?,?,?,?,?,?,?)", (s.next_id("OUT"), decision_id, "crm_compensate", "pending",
                 0, None, json.dumps({"kinds": COMPENSATE[reason], "reason": f"seller correction: {reason}"})))
-            effects.append("queued compensation for CRM writes already made")
+            effects.append("queued CRM compensation (undoes any write-back already made)")
             if reason == "wrong_person":
                 for key in d["subject_keys"]:
                     s.x("INSERT OR REPLACE INTO identity_exclusions VALUES(?,?,?,?)",

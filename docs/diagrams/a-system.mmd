@@ -1,0 +1,16 @@
+flowchart TB
+  CRM[CRM] & WH[Warehouse usage] & CONV[Conversations] & FN[Field notes] & JC[Job change / enrichment] --> N[Normalization: one record shape per kind]
+  N --> T[Context / truth layer: source precedence per field]
+  T --> CE[Champion engine: identity + champion evidence]
+  T --> BE[GTM brief engine: mentions + citations]
+  CE & BE --> DE[Decision engine: rules + trace]
+  DE --> PR[Approved play registry]
+  PR --> OB[Delivery adapter + outbox]
+  OB --> SL[Slack]
+  SL --> FB[Seller feedback]
+  FB --> W[CRM write-back / state / audit]
+  FB -. changes future decisions .-> DE
+  classDef rule fill:#e8edfd,stroke:#3b5bdb,color:#1d2330
+  classDef ext fill:#f0f2f5,stroke:#9aa3b2,color:#1d2330
+  class N,T,CE,BE,DE,PR,OB rule
+  class CRM,WH,CONV,FN,JC,SL,W ext

@@ -34,13 +34,11 @@ def resolve(store, jc: JobChange, cfg: dict, subject_keys: list[str]) -> dict:
                           tuple(subject_keys))}
     new_acct = store.one("SELECT id FROM accounts WHERE domain=?", (jc.new_domain.lower(),))
     candidates = []
-    url = (jc.profile_url or "").lower()
-    for p in store.docs("SELECT doc FROM people"):
-        # Candidates: same last name, OR the same profile URL. The URL path exists because the
-        # first eval run missed a vendor typo ("Elena Brook") and a name change ("Raman-Iyer").
-        same_url = bool(url) and (p.get("profile_url") or "").lower() == url
-        if norm_name(p["name"]).split()[-1] != last and not same_url:
-            continue
+    url = (jc.profile_url or "").lower() or None
+    # Candidates: same last name, OR the same profile URL (both indexed). The URL path exists
+    # because the first eval run missed a vendor typo ("Elena Brook") and a name change ("Raman-Iyer").
+    for p in store.docs("SELECT doc FROM people WHERE last_name=? OR (profile_url IS NOT NULL AND profile_url=?) "
+                        "ORDER BY id", (last, url)):
         acct = store.doc("accounts", p["account_id"])
         c = {"person_id": p["id"], "name": p["name"], "current_account": acct["name"], "features": {}, "score": 0.0,
              "excluded": None}
