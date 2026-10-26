@@ -1,0 +1,18 @@
+{
+  "_about": "Every number the engine uses to decide. Changing one is a reviewed change with an eval run, not a hotfix.",
+  "identity": {
+    "weights": {"profile_url": 0.80, "name_exact": 0.30, "previous_employer": 0.50, "metro": 0.15, "title_family": 0.10},
+    "match_min": 0.80,
+    "review_min": 0.45,
+    "min_margin": 0.20
+  },
+  "champion": {"confirmed_min_types": 2, "confirmed_requires_first_party": true, "evidence_max_age_days": 1095},
+  "signal_max_age_days": 30,
+  "context_max_age_days": 7,
+  "cross_provider_dedupe_days": 14,
+  "snooze_default_days": 7,
+  "dismiss_suppress_days": 30,
+  "already_engaged_suppress_days": 90,
+  "delivery_max_attempts": 3,
+  "brief": {"window_days": 21, "min_conversations_for_trend": 3}
+}

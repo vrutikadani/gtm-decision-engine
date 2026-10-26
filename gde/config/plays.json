@@ -1,0 +1,29 @@
+{
+  "_about": "Approved play registry. The decision engine can only recommend plays listed here; the model never invents a play. Order = priority (first eligible wins).",
+  "plays": [
+    {
+      "id": "champion_assist_open_opp",
+      "name": "Add champion to the open deal",
+      "requires": {"identity": "MATCH", "champion": "CONFIRMED", "open_opportunity": true, "max_signal_age_days": 30},
+      "deliver_to": "opportunity_owner",
+      "next_best_action": "Add {person} as a stakeholder on {opportunity} and ask them for a 15-minute intro to the evaluation team.",
+      "crm_writes": ["associate_contact", "add_opportunity_stakeholder", "create_task"]
+    },
+    {
+      "id": "champion_reactivation_with_context",
+      "name": "Champion reactivation (active evaluation)",
+      "requires": {"identity": "MATCH", "champion": "CONFIRMED", "account_tier_in": [1, 2], "open_opportunity": false, "max_signal_age_days": 30, "recent_intent_in": ["evaluating", "pricing"], "max_conversation_age_days": 30},
+      "deliver_to": "account_owner",
+      "next_best_action": "Call {person} this week. Reference the evaluation {account} started and bring the financing comparison.",
+      "crm_writes": ["associate_contact", "create_task"]
+    },
+    {
+      "id": "champion_reactivation",
+      "name": "Champion reactivation",
+      "requires": {"identity": "MATCH", "champion": "CONFIRMED", "account_tier_in": [1, 2], "open_opportunity": false, "max_signal_age_days": 30},
+      "deliver_to": "account_owner",
+      "next_best_action": "Send {person} a personal note within 5 business days and offer a 20-minute call about the new role.",
+      "crm_writes": ["associate_contact", "create_task"]
+    }
+  ]
+}
