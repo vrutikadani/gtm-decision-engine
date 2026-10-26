@@ -33,10 +33,12 @@ class Service:
         self.precedence = load_json("config/precedence.json")
         self.store = Store(db)
         self.faults = Faults(enabled=demo)
-        self.reset()
+        self.reset(_init=True)
 
     # ------------------------------------------------------------------ setup
-    def reset(self) -> dict:
+    def reset(self, _init: bool = False) -> dict:
+        if not _init:
+            self._demo_only()
         self.clock = Clock(self.world["demo_now"])
         self.faults.clear()
         self.store.reset(self.world)
@@ -123,6 +125,7 @@ class Service:
         return feedback.submit(self, decision_id, action, **kw)
 
     def advance(self, days: float) -> dict:
+        self._demo_only()
         self.clock.advance(days=days)
         woke = feedback.wake_snoozed(self)
         worker.process(self)

@@ -121,3 +121,5 @@ def test_fault_injection_disabled_outside_demo():
         prod.faults.arm("crm_read_timeout")
     with pytest.raises(PermissionError):
         prod.run_scenario(1)
+    with pytest.raises(PermissionError):
+        prod.reset()
