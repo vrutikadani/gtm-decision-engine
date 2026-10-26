@@ -23,6 +23,13 @@ from ..workflows import state
 ACTIONS = {"accept": "ACCEPTED", "execute": "EXECUTED", "snooze": "SNOOZED", "dismiss": "DISMISSED",
            "correct": "CORRECTED"}
 CORRECTIONS = {"wrong_person", "wrong_play", "already_engaged", "wrong_account"}
+# What each correction makes untrue in the CRM, if the seller had already accepted.
+COMPENSATE = {
+    "wrong_person": ["associate_contact", "add_opportunity_stakeholder", "create_task"],
+    "wrong_account": ["associate_contact", "add_opportunity_stakeholder", "create_task"],
+    "wrong_play": ["create_task"],
+    "already_engaged": ["create_task"],
+}
 
 
 class FeedbackError(ValueError):
@@ -82,15 +89,25 @@ def submit(svc, decision_id: str, action: str, reason: str | None = None, days: 
                               f"dismissed by seller{': ' + note if note else ''}")
             effects.append(f"{play} suppressed for {acct} until {until}")
         elif action == "correct":
+            # Undo first. A correction that only fixes future decisions leaves the CRM saying
+            # whatever the wrong recommendation wrote (see FAILURE_POSTMORTEM.md).
+            cancelled = s.x("UPDATE outbox SET status='cancelled', last_error='recommendation corrected' "
+                            "WHERE decision_id=? AND kind='crm_writeback' AND status='pending'", (decision_id,)).rowcount
+            if cancelled:
+                effects.append(f"cancelled {cancelled} pending CRM write-back")
+            s.x("INSERT INTO outbox VALUES(?,?,?,?,?,?,?)", (s.next_id("OUT"), decision_id, "crm_compensate", "pending",
+                0, None, json.dumps({"kinds": COMPENSATE[reason], "reason": f"seller correction: {reason}"})))
+            effects.append("queued compensation for CRM writes already made")
             if reason == "wrong_person":
-                s.x("INSERT OR REPLACE INTO identity_exclusions VALUES(?,?,?,?)",
-                    (d["subject_key"], person, clock.iso(), f"seller said wrong person ({decision_id})"))
+                for key in d["subject_keys"]:
+                    s.x("INSERT OR REPLACE INTO identity_exclusions VALUES(?,?,?,?)",
+                        (key, person, clock.iso(), f"seller said wrong person ({decision_id})"))
                 s.x("INSERT INTO outbox VALUES(?,?,?,?,?,?,?)", (s.next_id("OUT"), decision_id, "crm_writeback", "pending",
                     0, None, json.dumps({"writes": [{"kind": "data_quality_task", "key": f"{decision_id}:dq",
                     "fields": {"queue": "revops", "contact": person,
                                "subject": f"Seller says job-change match for {person} was the wrong person. "
                                           "Check the contact's profile URL and identifiers."}}]})))
-                effects += [f"excluded {person} for subject {d['subject_key']}", "RevOps data-quality task queued"]
+                effects += [f"excluded {person} for {', '.join(d['subject_keys'])}", "RevOps data-quality task queued"]
                 rerun = True
             elif reason == "wrong_play":
                 until = _suppress(s, clock, "play_account", f"{play}|{acct}", svc.cfg["dismiss_suppress_days"],

@@ -23,15 +23,16 @@ def deliver_slack(svc, row) -> None:
     s, clock, slack = svc.store, svc.clock, svc.slack
     doc = json.loads(row["doc"])
     run_id = s.one("SELECT run_id FROM decisions WHERE id=?", (row["decision_id"],))["run_id"]
-    if row["attempts"] > 0:
-        found = slack.find_by_metadata(doc["channel"], doc["key"])
-        if found:
-            with s.tx():
-                s.x("UPDATE outbox SET status='done', doc=? WHERE id=?",
-                    (json.dumps({**doc, "ts": found["ts"], "recovered": True}), row["id"]))
-                state.transition(s, clock, run_id, "DELIVERED", "found earlier post by metadata after ambiguous timeout")
-                audit.log(s, clock, "slack_recovered_existing_post", run_id, ts=found["ts"], attempt=row["attempts"] + 1)
-            return
+    # Always look first, not only on retries: a worker killed after Slack accepted the post
+    # but before this row was saved has attempts == 0 and still must not post again.
+    found = slack.find_by_metadata(doc["channel"], doc["key"])
+    if found:
+        with s.tx():
+            s.x("UPDATE outbox SET status='done', doc=? WHERE id=?",
+                (json.dumps({**doc, "ts": found["ts"], "recovered": True}), row["id"]))
+            state.transition(s, clock, run_id, "DELIVERED", "found earlier post by metadata (timeout or crash)")
+            audit.log(s, clock, "slack_recovered_existing_post", run_id, ts=found["ts"], attempt=row["attempts"] + 1)
+        return
     decision = s.doc("decisions", row["decision_id"])
     try:
         msg = slack.post(doc["channel"], decision["surface"], doc["key"])
@@ -70,7 +71,25 @@ def crm_writeback(svc, row) -> None:
             (json.dumps({**doc, "results": results}), row["id"]))
 
 
-HANDLERS = {"slack": deliver_slack, "crm_writeback": crm_writeback}
+def crm_compensate(svc, row) -> None:
+    """Undo CRM writes made for a recommendation the seller has since corrected. Looks at
+    what the CRM actually holds (not what we think we wrote), so a write-back that
+    crashed halfway is cleaned up too."""
+    s, clock, crm = svc.store, svc.clock, svc.crm
+    doc = json.loads(row["doc"])
+    run_id = s.one("SELECT run_id FROM decisions WHERE id=?", (row["decision_id"],))["run_id"]
+    done = []
+    for rec in crm.find_prefix(row["decision_id"] + ":"):
+        if rec["kind"] in doc["kinds"] and not rec.get("reverted"):
+            r = crm.revert(rec["gde_key"], f"{rec['gde_key']}:revert", doc["reason"])
+            done.append(r["id"])
+            audit.log(s, clock, "crm_compensating_write", run_id, target=rec["gde_key"], action=r["action"])
+    with s.tx():
+        s.x("UPDATE outbox SET status='done', attempts=attempts+1, doc=? WHERE id=?",
+            (json.dumps({**doc, "reverted": done}), row["id"]))
+
+
+HANDLERS = {"slack": deliver_slack, "crm_writeback": crm_writeback, "crm_compensate": crm_compensate}
 
 
 def process(svc, max_passes: int = 5) -> dict:

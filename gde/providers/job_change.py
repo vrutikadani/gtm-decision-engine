@@ -70,11 +70,17 @@ def normalize(provider: str, payload: dict) -> JobChange:
     return jc
 
 
-def subject_key(jc: JobChange) -> str:
-    """Who is this signal about? Used to remember corrections for this person."""
+def subject_keys(jc: JobChange) -> list[str]:
+    """Every identifier this signal gives us for its subject.
+
+    Corrections ("that's the wrong person") are stored under all of them. Storing under
+    only the strongest one (the profile URL) meant a second vendor that sends no URL
+    produced a different key and the correction was forgotten. See FAILURE_POSTMORTEM.md.
+    """
+    keys = [f"name:{norm_name(jc.name)}|{jc.new_domain.lower()}"]
     if jc.profile_url:
-        return "url:" + jc.profile_url.lower()
-    return f"name:{norm_name(jc.name)}|{jc.new_domain.lower()}"
+        keys.insert(0, "url:" + jc.profile_url.lower())
+    return keys
 
 
 def move_key(jc: JobChange) -> str:

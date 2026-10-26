@@ -33,7 +33,9 @@ def transition(store, clock, run_id: str, to_state: str, reason: str) -> None:
     run = store.one("SELECT state FROM runs WHERE id=?", (run_id,))
     current = run["state"]
     if to_state not in TRANSITIONS.get(current, set()):
-        audit.log(store, clock, "invalid_transition_rejected", run_id, frm=current, to=to_state, reason=reason)
+        # the caller's transaction is about to roll back; the record of the rejection must not
+        store.after_rollback(lambda: audit.log(store, clock, "invalid_transition_rejected", run_id,
+                                               frm=current, to=to_state, reason=reason))
         raise InvalidTransition(f"{current} -> {to_state} is not allowed")
     seq = store.one("SELECT COUNT(*) AS n FROM transitions WHERE run_id=?", (run_id,))["n"] + 1
     store.x("INSERT INTO transitions VALUES(?,?,?,?,?,?)", (run_id, seq, current, to_state, clock.iso(), reason))

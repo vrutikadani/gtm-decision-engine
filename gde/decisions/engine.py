@@ -24,7 +24,7 @@ from ..champions.resolution import resolve
 from ..champions.validation import validate
 from ..context.truth import ContextUnavailable, account_context
 from ..plays.registry import evaluate as evaluate_plays
-from ..providers.job_change import JobChange, move_key, normalize, subject_key
+from ..providers.job_change import JobChange, move_key, normalize, subject_keys
 from ..workflows import state
 
 STEPS = ["signal", "dedupe", "freshness", "identity", "champion", "context", "qualification",
@@ -74,8 +74,8 @@ class Engine:
                           provider_event_id=jc.provider_event_id, rule="same provider event id")
                 return {"duplicate": True, "run_id": run["id"], "reason": "same provider event id already processed"}
             sid, run_id = s.next_id("SIG"), s.next_id("RUN")
-            sk, mk = subject_key(jc), move_key(jc)
-            s.x("INSERT INTO signals VALUES(?,?,?,?,?,?,?)", (sid, provider, jc.provider_event_id, sk, mk,
+            sk, mk = subject_keys(jc), move_key(jc)
+            s.x("INSERT INTO signals VALUES(?,?,?,?,?,?,?)", (sid, provider, jc.provider_event_id, json.dumps(sk), mk,
                 self.clock.iso(), json.dumps({"normalized": jc.to_dict(), "raw": payload})))
             s.x("INSERT INTO runs VALUES(?,?,?,?,?)", (run_id, sid, "RECEIVED", self.clock.iso(), "{}"))
             audit.log(s, self.clock, "signal_received", run_id, provider=provider, event=jc.provider_event_id)
@@ -109,7 +109,7 @@ class Engine:
         t.add("dedupe", "PASS", "first report of this event and this move", "provider event id + (name, new domain) within "
               f"{cfg['cross_provider_dedupe_days']} days")
         ctx = {"jc": jc, "age": age, "trace": t, "llm_calls": llm_calls, "run_id": run_id,
-               "subject_key": sig_row["subject_key"]}
+               "subject_keys": json.loads(sig_row["subject_key"])}
 
         outcome = self._decide(ctx, review)
         return self._persist(run_id, ctx, outcome)
@@ -124,7 +124,7 @@ class Engine:
         t.add("freshness", "PASS", f"detected {c['age']:.0f} days ago", f"max {cfg['signal_max_age_days']} days")
 
         # identity
-        ident = resolve(s, jc, cfg["identity"], c["subject_key"])
+        ident = resolve(s, jc, cfg["identity"], c["subject_keys"])
         if review and review.get("person_id"):
             ident.update(status="MATCH", person_id=review["person_id"],
                          reason=f"confirmed by {review['reviewer']} in review", reviewed=True)
@@ -292,7 +292,7 @@ class Engine:
             c["trace"].add("decision", out["outcome"], out["reason"])
             d = {"id": did, "run_id": run_id, "created_at": clock.iso(), "outcome": out["outcome"],
                  "reason": out["reason"], "queue": out.get("queue"), "retryable": out.get("retryable", False),
-                 "signal": c["jc"].to_dict(), "subject_key": c["subject_key"],
+                 "signal": c["jc"].to_dict(), "subject_keys": c["subject_keys"],
                  "person_id": (c.get("person") or {}).get("id"),
                  "account_id": ((c.get("context") or {}).get("account") or {}).get("id"),
                  "play": c["play"]["id"] if c.get("play") else None,

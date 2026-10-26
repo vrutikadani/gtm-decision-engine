@@ -102,7 +102,7 @@ class Service:
         return {
             "decision_id": decision_id, "run_id": d["run_id"],
             "inputs": {"provider": sig["provider"], "raw_payload": json.loads(sig["doc"])["raw"],
-                       "normalized": d["signal"], "subject_key": d["subject_key"]},
+                       "normalized": d["signal"], "subject_keys": d["subject_keys"]},
             "context": {"status": ctx_step["status"], "detail": ctx_step["detail"], **ctx_step["data"]},
             "evidence": d["sources"],
             "rules": [{"step": x["label"], "status": x["status"], "rule": x["rule"], "detail": x["detail"]} for x in d["trace"]],
@@ -147,11 +147,12 @@ class Service:
             s.x("UPDATE review_queue SET status='resolved', doc=? WHERE id=?",
                 (json.dumps({**doc, "choice": choice, "reviewer": reviewer, "resolved_at": self.clock.iso()}), review_id))
             if choice == "none":
-                subject = s.one("SELECT subject_key FROM signals WHERE id=(SELECT signal_id FROM runs WHERE id=?)",
-                                (r["run_id"],))["subject_key"]
+                keys = json.loads(s.one("SELECT subject_key FROM signals WHERE id=(SELECT signal_id FROM runs WHERE id=?)",
+                                        (r["run_id"],))["subject_key"])
                 for pid in live:
-                    s.x("INSERT OR REPLACE INTO identity_exclusions VALUES(?,?,?,?)",
-                        (subject, pid, self.clock.iso(), f"reviewer {reviewer}: none of the candidates"))
+                    for key in keys:
+                        s.x("INSERT OR REPLACE INTO identity_exclusions VALUES(?,?,?,?)",
+                            (key, pid, self.clock.iso(), f"reviewer {reviewer}: none of the candidates"))
                 state.transition(s, self.clock, r["run_id"], "SUPPRESSED", f"reviewer {reviewer}: no candidate matches")
                 audit.log(s, self.clock, "review_resolved", r["run_id"], review=review_id, choice="none")
                 return {"review_id": review_id, "state": "SUPPRESSED"}
@@ -188,7 +189,7 @@ class Service:
             "opportunities": s.docs("SELECT doc FROM opportunities ORDER BY id"),
             "conversations": s.docs("SELECT doc FROM conversations ORDER BY date"),
             "signals": [{"id": r["id"], "provider": r["provider"], "event": r["provider_event_id"],
-                         "subject_key": r["subject_key"], **json.loads(r["doc"])["normalized"]}
+                         "subject_keys": json.loads(r["subject_key"]), **json.loads(r["doc"])["normalized"]}
                         for r in s.all("SELECT * FROM signals ORDER BY id")],
             "plays": self.plays,
             "decisions": self.decisions(),

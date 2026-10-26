@@ -25,11 +25,13 @@ def title_family(title: str) -> str | None:
     return next((f for f, pat in FAMILIES if re.search(pat, t)), None)
 
 
-def resolve(store, jc: JobChange, cfg: dict, subject_key: str) -> dict:
+def resolve(store, jc: JobChange, cfg: dict, subject_keys: list[str]) -> dict:
     w = cfg["weights"]
     last = norm_name(jc.name).split()[-1]
+    marks = ",".join("?" * len(subject_keys))
     excluded = {r["person_id"]: r["reason"] for r in
-                store.all("SELECT person_id, reason FROM identity_exclusions WHERE subject_key=?", (subject_key,))}
+                store.all(f"SELECT person_id, reason FROM identity_exclusions WHERE subject_key IN ({marks})",
+                          tuple(subject_keys))}
     new_acct = store.one("SELECT id FROM accounts WHERE domain=?", (jc.new_domain.lower(),))
     candidates = []
     for p in store.docs("SELECT doc FROM people"):
@@ -77,7 +79,7 @@ def resolve(store, jc: JobChange, cfg: dict, subject_key: str) -> dict:
     else:
         status = "NO_MATCH"
         why = "no candidate clears the review threshold" if live else "no remaining candidates"
-    return {"status": status, "reason": why, "subject_key": subject_key, "candidates": candidates,
+    return {"status": status, "reason": why, "subject_keys": subject_keys, "candidates": candidates,
             "person_id": best["person_id"] if status == "MATCH" else None,
             "confidence": best["score"] if best else 0.0, "margin": margin,
             "thresholds": {k: cfg[k] for k in ("match_min", "review_min", "min_margin")}}
