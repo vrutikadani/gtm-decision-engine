@@ -3,7 +3,7 @@
 Deliberately not an LLM. A false match sends a seller to congratulate a stranger on
 behalf of the company, so every point of confidence has to be explainable.
 
-  1. candidates   - CRM contacts whose last name matches (hard constraint)
+  1. candidates   - CRM contacts with the same last name or the same profile URL
   2. constraints  - drop candidates a human already ruled out, whose profile URL
                     contradicts the signal, or who are already known at the new company
   3. evidence     - independent features combined as noisy-OR: 1 - prod(1 - w)
@@ -34,8 +34,12 @@ def resolve(store, jc: JobChange, cfg: dict, subject_keys: list[str]) -> dict:
                           tuple(subject_keys))}
     new_acct = store.one("SELECT id FROM accounts WHERE domain=?", (jc.new_domain.lower(),))
     candidates = []
+    url = (jc.profile_url or "").lower()
     for p in store.docs("SELECT doc FROM people"):
-        if norm_name(p["name"]).split()[-1] != last:
+        # Candidates: same last name, OR the same profile URL. The URL path exists because the
+        # first eval run missed a vendor typo ("Elena Brook") and a name change ("Raman-Iyer").
+        same_url = bool(url) and (p.get("profile_url") or "").lower() == url
+        if norm_name(p["name"]).split()[-1] != last and not same_url:
             continue
         acct = store.doc("accounts", p["account_id"])
         c = {"person_id": p["id"], "name": p["name"], "current_account": acct["name"], "features": {}, "score": 0.0,
