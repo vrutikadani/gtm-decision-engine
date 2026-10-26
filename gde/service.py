@@ -209,7 +209,13 @@ class Service:
                            "enrichment": ["enrichment_cache_used"], "llm": ["unsupported_claim_rejected"]}.items():
             n = sum(kinds.get(e, 0) for e in evts)
             health[name] = {"recent_errors": n, "status": "degraded" if n else "ok"}
+        fb = [f["action"] + (":" + f["reason"] if f.get("reason") else "") for f in s.docs("SELECT doc FROM feedback")]
+        adoption = {"delivered": sum(1 for d in s.docs("SELECT doc FROM decisions") if d["outcome"] == "DELIVER"),
+                    **{k: sum(1 for x in fb if x == k or x.startswith(k + ":")) for k in
+                       ("accept", "execute", "snooze", "dismiss", "correct")},
+                    "corrections_by_reason": {x.split(":")[1]: fb.count(x) for x in set(fb) if x.startswith("correct:")}}
         return {
+            "adoption": adoption,
             "failed_workflows": s.all("SELECT id, state, updated_at FROM runs WHERE state IN ('DELIVERY_FAILED')"),
             "held": s.all("SELECT id, state, updated_at FROM runs WHERE state='HELD'"),
             "retries": s.all("SELECT id, decision_id, kind, status, attempts, last_error FROM outbox WHERE attempts > 1 OR last_error IS NOT NULL"),

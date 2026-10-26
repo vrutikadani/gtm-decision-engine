@@ -58,6 +58,33 @@ class MockProvider:
                 f"It was great working with you at {facts['previous_company']}.")
 
 
+class FallbackProvider:
+    """Wraps a real model. Any error (timeout, bad JSON, schema miss) falls back to the
+    deterministic provider for that call and is counted, so a model outage degrades the
+    demo instead of breaking it."""
+
+    def __init__(self, primary, fallback):
+        self.primary, self.fallback, self.errors = primary, fallback, 0
+        self.name, self.model = primary.name, primary.model
+
+    def _try(self, fn, *args):
+        try:
+            return getattr(self.primary, fn)(*args)
+        except Exception:  # noqa: BLE001 - any model failure means "use the rules"
+            self.errors += 1
+            return getattr(self.fallback, fn)(*args)
+
+    def extract_mentions(self, conversation):
+        out = self._try("extract_mentions", conversation)
+        return out if isinstance(out, list) else self.fallback.extract_mentions(conversation)
+
+    def classify_intent(self, text):
+        return self._try("classify_intent", text)
+
+    def draft_opener(self, facts):
+        return self._try("draft_opener", facts)
+
+
 class AnthropicProvider(MockProvider):
     """Optional. Same interface, same validation. Enabled with GDE_LLM=anthropic and
     ANTHROPIC_API_KEY. Not used by the public demo."""
@@ -95,5 +122,5 @@ class AnthropicProvider(MockProvider):
 
 def get_provider(faults=None):
     if os.environ.get("GDE_LLM") == "anthropic" and os.environ.get("ANTHROPIC_API_KEY"):
-        return AnthropicProvider(faults)
+        return FallbackProvider(AnthropicProvider(faults), MockProvider(faults))
     return MockProvider(faults)

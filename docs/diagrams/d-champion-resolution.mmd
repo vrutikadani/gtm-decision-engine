@@ -1,0 +1,20 @@
+flowchart TB
+  S[Job-change signal] --> C[Candidates<br/>same last name OR same profile URL]
+  C --> H{Hard constraints}
+  H -- ruled out earlier / URL contradicts / already at new company --> X[Excluded]
+  H --> E[Evidence score<br/>1 - product of 1 - w]
+  E --> O{Outcome}
+  O -- ">= 0.80 and margin >= 0.20" --> M[MATCH]
+  O -- ">= 0.45 or candidates too close" --> R[REVIEW: human queue]
+  O -- below 0.45 --> N[NO_MATCH: suppress]
+  M --> V{Champion evidence<br/>2+ types, 1 first-party}
+  V -- no --> N2[Suppress: not a champion]
+  V -- yes --> Q{Account qualified?<br/>tier, contactable, owner stable}
+  Q -- no --> N3[Suppress or RevOps review]
+  Q -- yes --> P[Play eligibility -> DELIVER]
+  classDef ok fill:#e3f4ea,stroke:#1f7a4d,color:#1d2330
+  classDef warn fill:#fdf1dc,stroke:#9a5b00,color:#1d2330
+  classDef no fill:#eef0f3,stroke:#6b7280,color:#1d2330
+  class M,P ok
+  class R warn
+  class X,N,N2,N3 no

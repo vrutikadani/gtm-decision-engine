@@ -14,5 +14,6 @@
   "dismiss_suppress_days": 30,
   "already_engaged_suppress_days": 90,
   "delivery_max_attempts": 3,
+  "rep_daily_cap": 5,
   "brief": {"window_days": 21, "min_conversations_for_trend": 3}
 }

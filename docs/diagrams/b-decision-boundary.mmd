@@ -1,0 +1,13 @@
+flowchart LR
+  L["<b>Model: bounded, validated</b><br/>Label buying intent in an utterance<br/>Extract competitor mentions, verbatim quote<br/>Draft one sentence of seller copy"]
+  D["<b>Deterministic code: decides</b><br/>Identity constraints and thresholds<br/>Ownership and routing<br/>Routing and suppression<br/>Cooldowns and freshness<br/>Play eligibility<br/>State transitions<br/>CRM write-back and idempotency"]
+  H["<b>Human: owns the hard calls</b><br/>Ambiguous identity<br/>Ownership in flux<br/>Corrections and exceptions"]
+  L -- "structured output,<br/>checked by code" --> D
+  D -- "uncertain or<br/>high risk" --> H
+  H -- "choice recorded<br/>in the trace" --> D
+  classDef det fill:#e3f4ea,stroke:#1f7a4d,color:#1d2330,text-align:left
+  classDef llm fill:#e8edfd,stroke:#3b5bdb,color:#1d2330
+  classDef hum fill:#fdf1dc,stroke:#9a5b00,color:#1d2330
+  class D det
+  class L llm
+  class H hum

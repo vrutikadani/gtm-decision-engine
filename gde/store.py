@@ -17,7 +17,9 @@ SCHEMA = """
 CREATE TABLE IF NOT EXISTS reps(id TEXT PRIMARY KEY, doc TEXT);
 CREATE TABLE IF NOT EXISTS accounts(id TEXT PRIMARY KEY, domain TEXT UNIQUE, doc TEXT);
 CREATE TABLE IF NOT EXISTS enrichment(domain TEXT PRIMARY KEY, doc TEXT);
-CREATE TABLE IF NOT EXISTS people(id TEXT PRIMARY KEY, doc TEXT);
+CREATE TABLE IF NOT EXISTS people(id TEXT PRIMARY KEY, last_name TEXT, profile_url TEXT, doc TEXT);
+CREATE INDEX IF NOT EXISTS people_last ON people(last_name);
+CREATE INDEX IF NOT EXISTS people_url ON people(profile_url);
 CREATE TABLE IF NOT EXISTS employment(person_id TEXT, account_id TEXT, doc TEXT);
 CREATE TABLE IF NOT EXISTS champion_evidence(id TEXT PRIMARY KEY, person_id TEXT, doc TEXT);
 CREATE TABLE IF NOT EXISTS opportunities(id TEXT PRIMARY KEY, account_id TEXT, doc TEXT);
@@ -120,7 +122,9 @@ class Store:
             for e in world["enrichment"]:
                 self.x("INSERT INTO enrichment VALUES(?,?)", (e["domain"], json.dumps(e)))
             for p in world["people"]:
-                self.x("INSERT INTO people VALUES(?,?)", (p["id"], json.dumps(p)))
+                last = "".join(ch for ch in p["name"].lower() if ch.isalpha() or ch == " ").split()[-1]
+                self.x("INSERT INTO people VALUES(?,?,?,?)", (p["id"], last, (p.get("profile_url") or "").lower() or None,
+                                                              json.dumps(p)))
             for e in world["employment"]:
                 self.x("INSERT INTO employment VALUES(?,?,?)", (e["person_id"], e["account_id"], json.dumps(e)))
             for e in world["champion_evidence"]:
