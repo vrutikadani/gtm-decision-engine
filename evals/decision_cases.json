@@ -1,0 +1,13 @@
+[
+ {"id": "D-01", "note": "scenario 1", "event": "S1", "expect": {"outcome": "DELIVER", "play": "champion_reactivation"}},
+ {"id": "D-02", "note": "scenario 2: ambiguous identity", "event": "S2", "expect": {"outcome": "NEEDS_REVIEW", "play": null}},
+ {"id": "D-03", "note": "scenario 4: champion + evaluation call", "event": "S4", "expect": {"outcome": "DELIVER", "play": "champion_reactivation_with_context"}},
+ {"id": "D-04", "note": "scenario 5: delivered; wrong only because CRM URL is wrong", "event": "S5", "expect": {"outcome": "DELIVER", "play": "champion_reactivation"}},
+ {"id": "D-05", "note": "stale signal", "event": "S1", "payload_changes": {"event_id": "JS-D05", "detected_at": "2026-09-01T00:00:00Z"}, "expect": {"outcome": "SUPPRESS", "play": null}},
+ {"id": "D-06", "note": "champion joins account with an open deal", "event": "S1", "payload_changes": {"event_id": "JS-D06", "new_role": {"company": "Summit Skin Clinics", "domain": "summit-skin.example", "title": "Practice Director", "start_date": "2026-10-01"}}, "expect": {"outcome": "DELIVER", "play": "champion_assist_open_opp"}},
+ {"id": "D-07", "note": "champion joins a Tier 3 account", "event": "S1", "payload_changes": {"event_id": "JS-D07", "new_role": {"company": "Meridian Family Clinic", "domain": "meridian-family.example", "title": "Practice Director", "start_date": "2026-10-01"}}, "expect": {"outcome": "SUPPRESS", "play": null}},
+ {"id": "D-08", "note": "contact with only webinar attendance moves", "event": "S1", "payload_changes": {"event_id": "JS-D08", "person": {"full_name": "Marcus Lee", "profile_url": "linkedin.example/in/marcus-lee-9", "location": "Phoenix"}}, "expect": {"outcome": "SUPPRESS", "play": null}},
+ {"id": "D-09", "note": "new company not in CRM", "event": "S1", "payload_changes": {"event_id": "JS-D09", "new_role": {"company": "Unknown Clinic", "domain": "unknown-clinic.example", "title": "Practice Director", "start_date": "2026-10-01"}}, "expect": {"outcome": "SUPPRESS", "play": null}},
+ {"id": "D-10", "note": "account marked do-not-contact", "event": "S1", "payload_changes": {"event_id": "JS-D10"}, "setup_sql": ["UPDATE accounts SET doc=json_set(doc, '$.do_not_contact', json('true')) WHERE id='A-100'"], "expect": {"outcome": "SUPPRESS", "play": null}},
+ {"id": "D-11", "note": "account mid-reassignment", "event": "S1", "payload_changes": {"event_id": "JS-D11"}, "setup_sql": ["UPDATE accounts SET doc=json_set(doc, '$.owner_pending_change', 'rep-luis') WHERE id='A-100'"], "expect": {"outcome": "NEEDS_REVIEW", "play": null}}
+]
