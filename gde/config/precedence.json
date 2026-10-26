@@ -1,0 +1,15 @@
+{
+  "_about": "Source precedence for each field in the context layer. First listed source that has a value wins; disagreements are recorded, never silently dropped.",
+  "account": {
+    "owner_id": ["crm"],
+    "tier": ["crm", "enrichment"],
+    "lifecycle": ["crm"],
+    "employees": ["enrichment"],
+    "locations": ["enrichment"]
+  },
+  "person": {
+    "current_title": ["job_change_provider", "crm"],
+    "current_company": ["job_change_provider", "crm"],
+    "email": ["crm"]
+  }
+}
