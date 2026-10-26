@@ -45,7 +45,7 @@ CREATE TABLE IF NOT EXISTS counters(name TEXT PRIMARY KEY, value INTEGER);
 
 class Store:
     def __init__(self, path: str = ":memory:"):
-        self.db = sqlite3.connect(path, isolation_level=None)  # explicit transactions only
+        self.db = sqlite3.connect(path, isolation_level=None, check_same_thread=False)  # explicit tx; api.py serializes access
         self.db.row_factory = sqlite3.Row
         self.db.executescript(SCHEMA)
         self._depth = 0

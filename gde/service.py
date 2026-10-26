@@ -75,7 +75,8 @@ class Service:
         d = self.store.doc("decisions", decision_id)
         if not d:
             raise NotFound(decision_id)
-        return self._fresh(d)
+        latest = self.store.one("SELECT id FROM decisions WHERE run_id=? ORDER BY id DESC LIMIT 1", (d["run_id"],))["id"]
+        return {**self._fresh(d), "superseded_by": None if latest == decision_id else latest}
 
     def decisions(self) -> list[dict]:
         out = []
@@ -230,6 +231,15 @@ class Service:
 
     def event(self, key: str) -> dict:
         return copy.deepcopy(self.world["events"][key])
+
+    def scenarios(self) -> list[dict]:
+        from .demo.scenarios import SCENARIOS
+        return [{"n": n, **v} for n, v in SCENARIOS.items()]
+
+    def followup(self, n: int, name: str) -> dict:
+        from .demo import scenarios
+        self._demo_only()
+        return scenarios.followup(self, n, name)
 
     def run_scenario(self, n: int) -> dict:
         from .demo import scenarios
