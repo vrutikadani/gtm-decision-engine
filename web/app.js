@@ -519,6 +519,9 @@ async function viewReliability() {
     ["Invalid transitions rejected", r.invalid_transitions_rejected], ["Stale signals suppressed", r.stale_signals_suppressed]];
   return `<div class="head"><h1>Reliability</h1><p class="presenter">Counts since the last reset. No uptime percentages: this is a demo, and these are real counters from this session.</p></div>
   <div class="tiles">${tiles.map(([k, v]) => `<div class="tile ${v ? "alert" : ""}"><div class="v">${v}</div><div class="k">${k}</div></div>`).join("")}</div>
+  <div class="panel" style="margin-bottom:16px"><h2>Seller adoption</h2><div class="row">${["delivered", "accept", "execute", "snooze", "dismiss", "correct"].map((k) =>
+    `<span class="pill">${k} <b>${r.adoption[k]}</b></span>`).join("")}${Object.entries(r.adoption.corrections_by_reason).map(([k, v]) => `<span class="pill">correct:${esc(k)} <b>${v}</b></span>`).join("")}</div>
+    <p class="muted small" style="margin-bottom:0">Trust shows up as accept and execute rates, and as corrections that fall over time. A rising wrong_person rate points at identity thresholds or CRM data quality.</p></div>
   <div class="grid-eq"><div class="stack">
     <div class="panel"><h2>Provider health</h2><table><tbody>${Object.entries(r.provider_health).map(([k, v]) => `<tr><td>${esc(k)}</td><td>${badge(v.status)}</td><td class="muted">${v.recent_errors} recent errors</td></tr>`).join("")}</tbody></table></div>
     <div class="panel"><h2>Held and failed runs</h2>${[...r.held, ...r.failed_workflows].map((x) => `<div class="rec"><span class="k">${esc(x.id)}</span>${badge(x.state)}${x.state === "HELD" ? `<button class="btn sm" data-retry="${esc(x.id)}">Retry</button>` : ""}</div>`).join("") || `<div class="muted">none</div>`}</div>
