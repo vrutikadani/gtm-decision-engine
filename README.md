@@ -128,6 +128,7 @@ CI fails on any new critical identity result. The first eval run found two real 
 | [SECURITY.md](docs/SECURITY.md) | PII, prompt injection, least privilege, demo-only controls |
 | [CODEBASE_GUIDE.md](docs/CODEBASE_GUIDE.md) | Product concept → file → function |
 | [INTERVIEW_WALKTHROUGH.md](docs/INTERVIEW_WALKTHROUGH.md) | A timed walkthrough: context, architecture, one trace, hard questions |
+| [DESIGN_CONTEXT.md](docs/DESIGN_CONTEXT.md) | Where this sits in the four GTM engineering layers; comparison with LangChain's GTM agents |
 
 ## Limitations
 
