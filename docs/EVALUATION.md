@@ -32,7 +32,7 @@ Candidate generation was last-name only. Adding profile-URL candidates fixed bot
 
 ### How the thresholds were chosen
 
-`python evals/threshold_sweep.py` (output in `docs/assets/threshold_sweep.txt`):
+`python evals/threshold_sweep.py` (full output in `docs/assets/threshold_sweep.txt`). On all 24 cases:
 
 ```
 match_min  correct safe miss critical(new)  sent_to_review
@@ -45,6 +45,21 @@ match_min  correct safe miss critical(new)  sent_to_review
 ```
 
 The rule was zero new critical cases first, then the fewest reviews. 0.75 to 0.85 is a plateau, and 0.80 sits in the middle so small weight changes do not fall off an edge. At 0.95 even scenario 5 goes to review, but so do 19 of 24 cases, and reviewers would stop reading.
+
+**Limitation: 0.80 was tuned and reported on the same 24 cases.** That overstates how well it generalizes. The sweep now also splits the cases deterministically (CRC32 of the case id: 11 tune, 13 holdout), picks on the tune split only, and reports the holdout:
+
+```
+picked on tune split: match_min = 0.75 (config uses 0.80)
+holdout at 0.75: correct 6, safe 6, miss 0, critical 1 (0 new), sent to review 7/13
+```
+
+What this shows, plainly:
+
+- The tune split happens to hold none of the hard negatives. Every threshold from 0.60 to 0.85 looks safe on it. Only the holdout shows that 0.70 and below make two new critical matches.
+- So the tune split alone could not have found the lower edge. The pick of 0.75 passed the holdout because the rule takes the middle of the plateau, not because the tune data was enough.
+- 13 holdout cases are far too few to estimate precision. The split catches a threshold that only works on its own cases. It does not replace labels from real review outcomes (below).
+
+The config stays at 0.80. It is inside the safe range on both splits and keeps a margin from the 0.70 edge.
 
 ## 2. Decisions: 11 end-to-end cases
 
