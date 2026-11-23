@@ -98,7 +98,7 @@ LLM provider: mock (deterministic)
 No external API keys required.
 ```
 
-Other targets: `make test` (54 tests), `make eval`, `python evals/threshold_sweep.py`. You can use Claude for the model calls with `GDE_LLM=anthropic ANTHROPIC_API_KEY=...`. The rules and validators stay the same. This path is tested only with a stubbed API call, not against the live model.
+Other targets: `make test` (56 tests), `make eval`, `python evals/threshold_sweep.py`. You can use Claude for the model calls with `GDE_LLM=anthropic ANTHROPIC_API_KEY=...`. The rules and validators stay the same. This path is tested only with a stubbed API call, not against the live model.
 
 ## Evaluation
 
