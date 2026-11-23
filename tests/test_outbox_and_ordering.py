@@ -102,6 +102,57 @@ def test_file_db_survives_restart_and_stuck_run_is_recovered_once(tmp_path):
     assert len(svc2.slack.messages) == 1
 
 
+def test_run_left_received_after_ingest_is_recovered_once(tmp_path):
+    """The process dies after ingest commits the signal and its run, before evaluate()
+    starts. Restart must evaluate the run once; re-delivery stays a duplicate."""
+    path = str(tmp_path / "gde.db")
+    svc1 = Service(db=path)
+
+    def die(*a, **k):
+        raise Interrupted()
+    svc1.engine.evaluate = die
+    provider, payload = ev(svc1, "S1")
+    with pytest.raises(Interrupted):
+        svc1.job_change(provider, dict(payload))
+    run_id = svc1.store.one("SELECT id FROM runs")["id"]
+    assert svc1.store.one("SELECT COUNT(*) n FROM decisions")["n"] == 0
+    svc1.store.db.close()
+
+    svc2 = Service(db=path)  # restart runs the sweeper
+    svc2.recover()  # a second sweep finds nothing to do
+    assert len(svc2.store.all("SELECT id FROM decisions WHERE run_id=?", (run_id,))) == 1
+    assert svc2.store.one("SELECT state FROM runs WHERE id=?", (run_id,))["state"] == "DELIVERED"
+    assert len(svc2.slack.messages) == 1
+    again = svc2.job_change(provider, dict(payload))
+    assert again["duplicate"] is True and len(svc2.slack.messages) == 1
+
+
+def test_review_choice_survives_crash_during_resumed_evaluation(tmp_path):
+    """A reviewer's committed identity choice must not be lost if the process dies while
+    the run is being re-evaluated with it."""
+    path = str(tmp_path / "gde.db")
+    svc1 = Service(db=path)
+    svc1.job_change(*ev(svc1, "S2"))
+    [item] = svc1.reviews()
+
+    def die(*a, **k):
+        raise Interrupted()
+    svc1.engine._decide = die
+    with pytest.raises(Interrupted):
+        svc1.resolve_review(item["id"], "P-501", reviewer="revops-ana")
+    run_id = item["run_id"]
+    svc1.store.db.close()
+
+    svc2 = Service(db=path)
+    svc2.recover()
+    assert svc2.reviews() == [], "recovery reopened an identity review the reviewer already answered"
+    assert svc2.store.one("SELECT state FROM runs WHERE id=?", (run_id,))["state"] == "DELIVERED"
+    latest = svc2.store.docs("SELECT doc FROM decisions WHERE run_id=? ORDER BY id DESC LIMIT 1", (run_id,))[0]
+    assert latest["outcome"] == "DELIVER" and latest["person_id"] == "P-501"
+    assert latest["identity"]["reason"].startswith("confirmed by revops-ana")
+    assert len(svc2.slack.messages) == 1
+
+
 def test_explicit_demo_reset_still_wipes(tmp_path):
     svc = Service(db=str(tmp_path / "gde.db"))
     svc.job_change(*ev(svc, "S1"))
