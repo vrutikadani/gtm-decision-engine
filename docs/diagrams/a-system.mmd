@@ -1,16 +1,29 @@
 flowchart TB
-  CRM[CRM] & WH[Warehouse usage] & CONV[Conversations] & FN[Field notes] & JC[Job change / enrichment] --> N[Normalization: one record shape per kind]
-  N --> T[Context / truth layer: source precedence per field]
-  T --> CE[Champion engine: identity + champion evidence]
-  T --> BE[GTM brief engine: mentions + citations]
-  CE & BE --> DE[Decision engine: rules + trace]
-  DE --> PR[Approved play registry]
-  PR --> OB[Delivery adapter + outbox]
-  OB --> SL[Slack]
-  SL --> FB[Seller feedback]
-  FB --> W[CRM write-back / state / audit]
-  FB -. changes future decisions .-> DE
+  JC["Job-change webhooks<br/>2 vendor payload shapes"] --> N["Normalization<br/>vendor payload to one JobChange"]
+  N --> DD["Dedupe<br/>event id + same move within 14 days"]
+  DD --> ID
+  subgraph DE["Decision engine: rules + trace (gde/decisions/engine.py)"]
+    ID["Identity + event-order watermark"] --> CH["Champion evidence"]
+    CH --> CX["Account context<br/>source precedence per field"]
+    CX --> Q["Qualification + seller suppressions"]
+    Q --> CI["Conversation intent<br/>model labels, code validates and decides"]
+    CI --> PR["Approved play registry"]
+  end
+  EV["Champion evidence rows (fixture)<br/>warehouse usage, CRM, Gong, field notes"] --> CH
+  CRM["CRM accounts + opportunities (fixture)<br/>simulated adapter"] --> CX
+  ENR["Enrichment (fixture)<br/>simulated adapter, cache on timeout"] --> CX
+  CONV["Conversations (fixture)<br/>Gong transcripts + field notes"] --> CI
+  CONV --> BE["GTM brief engine<br/>mentions + citations"]
+  BE --> BP["Brief page (separate output)"]
+  PR --> OB["Outbox + worker<br/>retry, cap, dead letter"]
+  OB --> SL["Slack card (simulated)<br/>edited in place on correction"]
+  SL --> FB["Seller feedback"]
+  FB -- "accept, correct" --> OB
+  OB --> W["CRM write-back / compensation (simulated)"]
+  FB -. "future decisions" .-> DE
   classDef rule fill:#e8edfd,stroke:#3b5bdb,color:#1d2330
   classDef ext fill:#f0f2f5,stroke:#9aa3b2,color:#1d2330
-  class N,T,CE,BE,DE,PR,OB rule
-  class CRM,WH,CONV,FN,JC,SL,W ext
+  classDef fixture fill:#fff8e6,stroke:#c69214,color:#1d2330,stroke-dasharray: 4 3
+  class N,DD,ID,CH,CX,Q,CI,PR,BE,OB rule
+  class JC,SL,W,FB,BP ext
+  class EV,CRM,ENR,CONV fixture
