@@ -16,10 +16,13 @@ A map from product concept to file and function. Jump by function name; line num
 | Approved plays | `gde/config/plays.json` + `gde/plays/registry.py` | `evaluate`: every play, with reasons |
 | Every threshold | `gde/config/thresholds.json` | identity weights, freshness, cooldowns, rep cap |
 | Decision trace | `gde/decisions/engine.py` | `Trace.add`, `Trace.finish` |
-| Seller card (Slack surface) | `gde/decisions/engine.py` | `_surface` (opener validation inside) |
+| Seller card (Slack surface) | `gde/decisions/engine.py` | `_draft_opener` (model call + validation, outside the transaction), `_surface` |
+| Model output validation (intent) | `gde/decisions/engine.py` | `validate_intent` |
+| Event order watermark | `gde/decisions/engine.py` | "event order" block in `_decide`; watermark write in `_persist` |
+| Restart recovery sweeper | `gde/service.py` | `Service.__init__` (seed only if empty), `recover` |
 | Workflow states | `gde/workflows/state.py` | `TRANSITIONS`, `transition` |
-| Outbox worker, retries, idempotency | `gde/delivery/worker.py` | `deliver_slack`, `crm_writeback`, `crm_compensate`, `process` |
-| Slack adapter | `gde/delivery/slack.py` | `find_by_metadata`, `post` |
+| Outbox worker, retries, idempotency | `gde/delivery/worker.py` | `deliver_slack`, `crm_writeback`, `crm_compensate`, `slack_retract`, `_fail`, `process` |
+| Slack adapter | `gde/delivery/slack.py` | `find_by_metadata`, `post`, `find_prefix`, `update` |
 | CRM adapter | `gde/providers/crm.py` | `upsert` (search-before-create), `revert` |
 | Seller feedback | `gde/feedback/service.py` | `submit`, `COMPENSATE`, `wake_snoozed` |
 | Human review queue | `gde/service.py` | `reviews`, `resolve_review` |
@@ -44,9 +47,10 @@ A map from product concept to file and function. Jump by function name; line num
 | Duplicates, timeouts, retries, crashes, invalid transitions | `tests/test_reliability.py` |
 | Tests written to break it, plus regressions for the hardest failure | `tests/test_adversarial.py` |
 | Hardening from a design review (each test closes a gap) | `tests/test_readiness.py` |
+| Outbox failures, restart recovery, intent validation, event order, card retraction | `tests/test_outbox_and_ordering.py` |
 | HTTP and browser route parity; manifest freshness | `tests/test_api.py` |
 | Identity / decision / brief evaluation | `evals/run_eval.py` |
-| Threshold sweep | `evals/threshold_sweep.py` |
+| Threshold sweep (tune / holdout split) | `evals/threshold_sweep.py` |
 
 ## Three code paths to read first
 

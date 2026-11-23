@@ -20,6 +20,7 @@ import re
 import sqlite3
 
 from .. import audit
+from ..clock import parse
 from ..accounts.qualification import qualify
 from ..briefs.service import INJECTION
 from ..champions.resolution import resolve
@@ -29,13 +30,36 @@ from ..plays.registry import evaluate as evaluate_plays
 from ..providers.job_change import JobChange, move_key, normalize, subject_keys
 from ..workflows import state
 
-STEPS = ["signal", "dedupe", "freshness", "identity", "champion", "context", "qualification",
+STEPS = ["signal", "dedupe", "freshness", "identity", "ordering", "champion", "context", "qualification",
          "suppression", "conversation_context", "plays", "decision"]
 LABELS = {"signal": "Job change signal", "dedupe": "Duplicate check", "freshness": "Signal freshness",
-          "identity": "Person identity", "champion": "Champion status", "context": "Account context",
+          "identity": "Person identity", "ordering": "Event order", "champion": "Champion status", "context": "Account context",
           "qualification": "Account qualification", "suppression": "Seller feedback / cooldowns",
           "conversation_context": "Recent conversations", "plays": "Approved play eligibility",
           "decision": "Decision"}
+INTENT_LABELS = {"evaluating", "pricing", "none"}
+
+
+def validate_intent(label, confidence) -> tuple[str | None, float, list[str]]:
+    """Code decides what a model label is allowed to be. An unknown label is dropped
+    (returned as None); a confidence outside [0, 1] is clamped. Both are recorded."""
+    problems = []
+    if not isinstance(label, str) or label not in INTENT_LABELS:
+        problems.append(f"label {label!r} not in {sorted(INTENT_LABELS)}")
+        label = None
+    try:
+        conf = float(confidence)
+        if conf != conf:  # NaN
+            raise ValueError
+    except (TypeError, ValueError):
+        problems.append(f"confidence {confidence!r} is not a number")
+        return None, 0.0, problems
+    if not 0 <= conf <= 1:
+        problems.append(f"confidence {conf} clamped to [0, 1]")
+        conf = min(1.0, max(0.0, conf))
+    return label, conf, problems
+
+
 OUTCOME_STATE = {"DELIVER": "DELIVER_PENDING", "NEEDS_REVIEW": "NEEDS_REVIEW", "HOLD": "HELD", "SUPPRESS": "SUPPRESSED"}
 
 
@@ -100,14 +124,18 @@ class Engine:
         return self.evaluate(run_id)
 
     # ---------------------------------------------------------------- evaluate
-    def evaluate(self, run_id: str, review: dict | None = None) -> dict:
+    def evaluate(self, run_id: str, review: dict | None = None, resume: bool = False) -> dict:
+        """resume=True means the caller already committed the run EVALUATING (the recovery
+        sweeper, or resolve_review), so no transition is made. A run still RECEIVED is moved
+        to EVALUATING as usual."""
         s, clock, cfg = self.store, self.clock, self.cfg
         run = s.one("SELECT * FROM runs WHERE id=?", (run_id,))
         sig_row = s.one("SELECT * FROM signals WHERE id=?", (run["signal_id"],))
         sig = json.loads(sig_row["doc"])
         jc = JobChange(**sig["normalized"])
-        with s.tx():
-            state.transition(s, clock, run_id, "EVALUATING", "review resolved" if review else "evaluate")
+        if not (resume and run["state"] == "EVALUATING"):
+            with s.tx():
+                state.transition(s, clock, run_id, "EVALUATING", "review resolved" if review else "evaluate")
         t, llm_calls = Trace(), []
         age = clock.days_since(jc.detected_at)
         t.add("signal", "RECEIVED", f"{jc.name} -> {jc.new_title} at {jc.new_company}",
@@ -152,6 +180,23 @@ class Engine:
         person = s.doc("people", ident["person_id"])
         c["person"] = person
         c["previous_account"] = s.doc("accounts", person["account_id"])
+
+        # event order: vendors deliver late and out of order. The watermark is the newest
+        # detected_at already processed for this person (any company). Vendor subject keys
+        # include the new domain, so two different moves never share one; the resolved
+        # person is the only key that does.
+        wm = s.one("SELECT * FROM subject_watermarks WHERE person_id=?", (person["id"],))
+        rule = "act only on a person's newest move: detected_at >= watermark"
+        if wm and wm["run_id"] != c["run_id"] and parse(wm["detected_at"]) > parse(jc.detected_at):
+            c["out_of_order"] = True
+            t.add("ordering", "OUT_OF_ORDER", f"detected {jc.detected_at}; a newer move for {person['name']} "
+                  f"(detected {wm['detected_at']}, {wm['run_id']}) was already processed", rule,
+                  watermark=wm["detected_at"], watermark_run=wm["run_id"])
+            return {"outcome": "SUPPRESS",
+                    "reason": f"Out of order: a newer job change for {person['name']} (detected {wm['detected_at'][:10]}, "
+                              f"{wm['run_id']}) was already processed. This older move is recorded, not acted on."}
+        t.add("ordering", "PASS", f"newest move seen for {person['name']}" if not wm or wm["run_id"] == c["run_id"]
+              else f"newer than the watermark {wm['detected_at']} ({wm['run_id']})", rule)
 
         # champion
         ch = validate(s, clock, person["id"], cfg["champion"])
@@ -228,10 +273,18 @@ class Engine:
                 if INJECTION.search(u["text"]):  # same quarantine as the brief pipeline
                     audit.log(s, clock, "content_quarantined", c["run_id"], conversation=conv["id"], utterance=i)
                     continue
-                label, conf = self.llm.classify_intent(u["text"])
+                raw_label, raw_conf = self.llm.classify_intent(u["text"])
+                label, conf, problems = validate_intent(raw_label, raw_conf)
                 c["llm_calls"].append({"purpose": "classify_intent", "provider": self.llm.name, "model": self.llm.model,
-                                       "input": f"{conv['id']}#{i}", "output": {"label": label, "confidence": conf},
-                                       "validated": label in {"evaluating", "pricing", "none"} and 0 <= conf <= 1})
+                                       "input": f"{conv['id']}#{i}",
+                                       "output": {"label": raw_label, "confidence": raw_conf},
+                                       "used": {"label": label, "confidence": conf} if label else None,
+                                       "validated": not problems, "problems": problems})
+                if problems:
+                    audit.log(s, clock, "llm_output_rejected" if label is None else "llm_output_clamped", c["run_id"],
+                              purpose="classify_intent", input=f"{conv['id']}#{i}", problems=problems)
+                if label is None:
+                    continue  # an unknown label is dropped, never shown to a seller
                 if label != "none" and conf >= 0.6:
                     intents.append({"label": label, "conversation_id": conv["id"], "quote": u["text"],
                                     "age_days": round(conv_age, 1), "confidence": conf, "title": conv["title"]})
@@ -278,19 +331,25 @@ class Engine:
         return base + " with no conflicting active opportunity."
 
     # ------------------------------------------------------------------ output
+    def _draft_opener(self, c: dict) -> str:
+        """The one model call on the delivery path. Called before _persist opens its
+        transaction: a slow or hung model must not hold the database write lock."""
+        p, acct = c["person"], c["context"]["account"]
+        facts = {"first_name": p["name"].split()[0], "account": acct["name"],
+                 "previous_company": c["previous_account"]["name"]}
+        opener = self.llm.draft_opener(facts)
+        ok = (isinstance(opener, str) and len(opener) <= 240 and facts["first_name"] in opener
+              and not re.search(r"\d|Competitor|guarantee", opener))
+        c["llm_calls"].append({"purpose": "draft_opener", "provider": self.llm.name, "model": self.llm.model,
+                               "input": facts, "output": opener, "validated": ok})
+        return opener if ok else f"Congrats on the new role at {acct['name']}, {facts['first_name']}."
+
     def _surface(self, c: dict, decision_id: str) -> dict:
         jc, p, acct, play = c["jc"], c["person"], c["context"]["account"], c["play"]
         opp = c["context"]["open_opportunities"][0] if c["context"]["open_opportunities"] else None
         owner_id = opp["owner_id"] if play["deliver_to"] == "opportunity_owner" and opp else acct["owner_id"]
         owner = self.store.doc("reps", owner_id)
-        facts = {"first_name": p["name"].split()[0], "account": acct["name"],
-                 "previous_company": c["previous_account"]["name"]}
-        opener = self.llm.draft_opener(facts)
-        ok = (len(opener) <= 240 and facts["first_name"] in opener and not re.search(r"\d|Competitor|guarantee", opener))
-        c["llm_calls"].append({"purpose": "draft_opener", "provider": self.llm.name, "model": self.llm.model,
-                               "input": facts, "output": opener, "validated": ok})
-        if not ok:
-            opener = f"Congrats on the new role at {acct['name']}, {facts['first_name']}."
+        opener = c["opener"]
         why_now = (f"{p['name']} started as {jc.new_title} at {acct['name']} "
                    f"(reported {c['age']:.0f} days ago). Former champion at {c['previous_account']['name']}.")
         if c["intents"]:
@@ -309,6 +368,8 @@ class Engine:
 
     def _persist(self, run_id: str, c: dict, out: dict) -> dict:
         s, clock = self.store, self.clock
+        if out["outcome"] == "DELIVER":
+            c["opener"] = self._draft_opener(c)  # outside the transaction (see _draft_opener)
         with s.tx():
             did = s.next_id("DEC")
             surface = self._surface(c, did) if out["outcome"] == "DELIVER" else None
@@ -327,6 +388,11 @@ class Engine:
             for call in c["llm_calls"]:
                 s.x("INSERT INTO llm_calls VALUES(?,?,?,?)", (s.next_id("LLM"), run_id, call["purpose"], json.dumps(call)))
             state.transition(s, clock, run_id, OUTCOME_STATE[out["outcome"]], out["reason"])
+            if c.get("person") and not c.get("out_of_order"):
+                wm = s.one("SELECT detected_at FROM subject_watermarks WHERE person_id=?", (c["person"]["id"],))
+                if not wm or parse(c["jc"].detected_at) >= parse(wm["detected_at"]):
+                    s.x("INSERT OR REPLACE INTO subject_watermarks VALUES(?,?,?)",
+                        (c["person"]["id"], c["jc"].detected_at, run_id))
             if out["outcome"] == "DELIVER":
                 channel = surface["owner"]["slack"]
                 s.x("INSERT INTO outbox VALUES(?,?,?,?,?,?,?)", (s.next_id("OUT"), did, "slack", "pending", 0, None,

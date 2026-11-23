@@ -35,3 +35,16 @@ class SimulatedSlack:
         if self.faults.fire("slack_timeout_after_post"):
             raise SlackTimeout("timed out waiting for chat.postMessage response")
         return msg
+
+    def find_prefix(self, channel: str, prefix: str) -> list[dict]:
+        self.api_calls += 1
+        return [m for m in self.messages if m["channel"] == channel and
+                (m["metadata"]["gde_key"] == prefix or m["metadata"]["gde_key"].startswith(prefix + ":"))]
+
+    def update(self, channel: str, ts: str, blocks: dict) -> dict:
+        """chat.update: replace a posted message's content in place. Setting the same
+        blocks twice is harmless, so a replay needs no extra lookup."""
+        self.api_calls += 1
+        msg = next(m for m in self.messages if m["channel"] == channel and m["ts"] == ts)
+        msg.update(blocks=blocks, edited_at=self.clock.iso())
+        return msg

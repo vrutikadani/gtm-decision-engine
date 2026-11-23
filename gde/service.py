@@ -33,23 +33,67 @@ class Service:
         self.precedence = load_json("config/precedence.json")
         self.store = Store(db)
         self.faults = Faults(enabled=demo)
-        self.reset(_init=True)
+        # Seed reference data only into an empty database. A file database keeps its runs,
+        # decisions and outbox across restarts; only an explicit demo reset wipes it.
+        restarted = not self.store.is_empty()
+        if not restarted:
+            self.store.reset(self.world)
+        self._wire()
+        if restarted:
+            audit.log(self.store, self.clock, "service_restarted")
+            self.recover()
+        else:
+            audit.log(self.store, self.clock, "demo_reset")
 
     # ------------------------------------------------------------------ setup
-    def reset(self, _init: bool = False) -> dict:
-        if not _init:
-            self._demo_only()
-        self.clock = Clock(self.world["demo_now"])
+    def reset(self) -> dict:
+        """Demo only: wipe every table and reseed from fixtures."""
+        self._demo_only()
         self.faults.clear()
         self.store.reset(self.world)
+        self._wire()
+        audit.log(self.store, self.clock, "demo_reset")
+        return {"ok": True, "now": self.clock.iso(), "llm": self.llm.name}
+
+    def _wire(self) -> None:
+        self.clock = Clock(self.world["demo_now"])
         self.crm = SimulatedCRM(self.store, self.clock, self.faults)
         self.slack = SimulatedSlack(self.clock, self.faults)
         self.enrichment = Enrichment(self.store, self.clock, self.faults)
         self.llm = get_provider(self.faults)
         self.engine = Engine(self.store, self.clock, self.crm, self.enrichment, self.llm, self.cfg, self.plays,
                              self.precedence)
-        audit.log(self.store, self.clock, "demo_reset")
-        return {"ok": True, "now": self.clock.iso(), "llm": self.llm.name}
+
+    def recover(self) -> dict:
+        """Recovery sweeper, run on startup. Ingest commits a run RECEIVED; evaluate commits
+        it EVALUATING before the engine decides; the decision is committed with the next
+        state in one transaction (Engine._persist). So a run still RECEIVED or EVALUATING
+        with no process working on it was interrupted before its decision. Evaluate it once,
+        with the reviewer's committed choice if a review is what it was resuming; then drain
+        the outbox, which replays any side effect that was committed but not performed."""
+        stuck = [r["id"] for r in self.store.all(
+            "SELECT id FROM runs WHERE state IN ('RECEIVED', 'EVALUATING') ORDER BY id")]
+        for run_id in stuck:
+            review = self._resolved_review(run_id)
+            audit.log(self.store, self.clock, "run_recovered", run_id,
+                      reason="found unfinished on startup", review=bool(review))
+            self.engine.evaluate(run_id, review=review, resume=True)
+        out = worker.process(self)
+        return {"recovered": stuck, **out}
+
+    def _resolved_review(self, run_id: str) -> dict | None:
+        """The reviewer's identity choice the run was being re-evaluated with, if any: the
+        run's newest review is resolved to a person and no decision was made after the one
+        that opened it (both are written in one transaction by Engine._persist)."""
+        s = self.store
+        r = s.one("SELECT doc FROM review_queue WHERE run_id=? AND status='resolved' ORDER BY id DESC LIMIT 1", (run_id,))
+        if not r:
+            return None
+        doc = json.loads(r["doc"])
+        latest = s.one("SELECT id FROM decisions WHERE run_id=? ORDER BY id DESC LIMIT 1", (run_id,))
+        if doc.get("choice") in (None, "none") or not latest or latest["id"] != doc.get("decision_id"):
+            return None
+        return {"person_id": doc["choice"], "reviewer": doc.get("reviewer", "revops")}
 
     # ---------------------------------------------------------------- signals
     def job_change(self, provider: str, payload: dict) -> dict:
@@ -111,7 +155,8 @@ class Service:
             "rules": [{"step": x["label"], "status": x["status"], "rule": x["rule"], "detail": x["detail"]} for x in d["trace"]],
             "model": {"used": bool(d["llm_calls"]), "calls": d["llm_calls"],
                       "boundary": "labels prospect intent and drafts one sentence of copy; never chooses identity, play, owner or writes"},
-            "state": {"current": self._fresh(d)["state"], "transitions": state.history(s, d["run_id"])},
+            "state": {"current": self._fresh(d)["state"], "flags": state.flags(s, d["run_id"]),
+                      "transitions": state.history(s, d["run_id"])},
             "output": {"outcome": d["outcome"], "reason": d["reason"], "surface": d["surface"]},
             "side_effects": {"outbox": outbox,
                              "slack": [m for m in self.slack.messages if m["metadata"]["gde_key"].startswith(decision_id)],
@@ -161,7 +206,10 @@ class Service:
                 audit.log(s, self.clock, "review_resolved", r["run_id"], review=review_id, choice="none")
                 return {"review_id": review_id, "state": "SUPPRESSED"}
             audit.log(s, self.clock, "review_resolved", r["run_id"], review=review_id, choice=choice)
-        out = self.engine.evaluate(r["run_id"], review={"person_id": choice, "reviewer": reviewer})
+            # committed with the choice, so a crash before the decision leaves the run
+            # EVALUATING with a resolved review, which recover() resumes with that choice
+            state.transition(s, self.clock, r["run_id"], "EVALUATING", "review resolved")
+        out = self.engine.evaluate(r["run_id"], review={"person_id": choice, "reviewer": reviewer}, resume=True)
         worker.process(self)
         return self._fresh(out)
 
@@ -208,8 +256,9 @@ class Service:
         s = self.store
         kinds = {r["kind"]: r["n"] for r in s.all("SELECT kind, COUNT(*) n FROM audit GROUP BY kind")}
         health = {}
-        for name, evts in {"slack": ["slack_attempt_failed"], "crm": ["context_unavailable", "worker_crashed"],
-                           "enrichment": ["enrichment_cache_used"], "llm": ["unsupported_claim_rejected"]}.items():
+        for name, evts in {"slack": ["slack_attempt_failed"],
+                           "crm": ["context_unavailable", "worker_crashed", "crm_attempt_failed"],
+                           "enrichment": ["enrichment_cache_used"], "llm": ["unsupported_claim_rejected", "llm_output_rejected", "llm_output_clamped"]}.items():
             n = sum(kinds.get(e, 0) for e in evts)
             health[name] = {"recent_errors": n, "status": "degraded" if n else "ok"}
         fb = [f["action"] + (":" + f["reason"] if f.get("reason") else "") for f in s.docs("SELECT doc FROM feedback")]
@@ -222,6 +271,10 @@ class Service:
             "failed_workflows": s.all("SELECT id, state, updated_at FROM runs WHERE state IN ('DELIVERY_FAILED')"),
             "held": s.all("SELECT id, state, updated_at FROM runs WHERE state='HELD'"),
             "retries": s.all("SELECT id, decision_id, kind, status, attempts, last_error FROM outbox WHERE attempts > 1 OR last_error IS NOT NULL"),
+            # side effects that hit the attempt cap: nothing retries them; a person must look
+            "dead_letters": s.all("SELECT id, decision_id, kind, attempts, last_error FROM outbox WHERE status='dead' ORDER BY id"),
+            "writeback_failed": [{"id": r["id"], "state": r["state"], "flags": sorted(state.flags(s, r["id"]))}
+                                 for r in s.all("SELECT id, state FROM runs ORDER BY id") if state.flags(s, r["id"])],
             "review_queue": self.reviews(),
             "duplicates_suppressed": kinds.get("duplicate_suppressed", 0) + s.one("SELECT COUNT(*) n FROM runs WHERE state='DUPLICATE'")["n"],
             "unsupported_claims_rejected": kinds.get("unsupported_claim_rejected", 0),
@@ -229,6 +282,8 @@ class Service:
             "invalid_transitions_rejected": kinds.get("invalid_transition_rejected", 0),
             "stale_signals_suppressed": sum(1 for d in s.docs("SELECT doc FROM decisions")
                                             if any(x["step"] == "freshness" and x["status"] == "FAIL" for x in d["trace"])),
+            "out_of_order_suppressed": sum(1 for d in s.docs("SELECT doc FROM decisions")
+                                           if any(x["step"] == "ordering" and x["status"] == "OUT_OF_ORDER" for x in d["trace"])),
             "provider_health": health,
             "recent_audit": audit.recent(s, 40),
         }

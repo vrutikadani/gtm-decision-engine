@@ -1,6 +1,8 @@
-"""SQLite persistence. One file locally, in-memory in the browser demo.
+"""SQLite persistence. In memory by default and in the browser demo; a file when GDE_DB
+is set. A file database keeps everything across restarts: reference data is seeded
+only into an empty database, and only the demo reset endpoint wipes it.
 
-Reference data (accounts, people, evidence...) is loaded from fixtures on reset.
+Reference data (accounts, people, evidence...) is loaded from fixtures on seed/reset.
 Operational data (signals, runs, decisions, feedback, outbox, audit) is written by
 the engine. Every write that must happen together goes through `tx()`.
 """
@@ -41,6 +43,7 @@ CREATE TABLE IF NOT EXISTS outbox(id TEXT PRIMARY KEY, decision_id TEXT, kind TE
 CREATE TABLE IF NOT EXISTS llm_calls(id TEXT PRIMARY KEY, run_id TEXT, purpose TEXT, doc TEXT);
 CREATE TABLE IF NOT EXISTS audit(seq INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT, kind TEXT, run_id TEXT, detail TEXT);
 CREATE TABLE IF NOT EXISTS briefs(id TEXT PRIMARY KEY, created_at TEXT, doc TEXT);
+CREATE TABLE IF NOT EXISTS subject_watermarks(person_id TEXT PRIMARY KEY, detected_at TEXT, run_id TEXT);
 CREATE TABLE IF NOT EXISTS counters(name TEXT PRIMARY KEY, value INTEGER);
 """
 
@@ -108,6 +111,9 @@ class Store:
         n = (r["value"] if r else 0) + 1
         self.x("INSERT OR REPLACE INTO counters(name, value) VALUES(?, ?)", (prefix, n))
         return f"{prefix}-{n:04d}"
+
+    def is_empty(self) -> bool:
+        return self.one("SELECT COUNT(*) n FROM reps")["n"] == 0
 
     # -- reset ----------------------------------------------------------------
     def reset(self, world: dict):

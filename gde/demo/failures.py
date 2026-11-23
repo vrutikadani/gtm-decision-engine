@@ -15,6 +15,7 @@ CATALOG = {
     "slack_503": "Slack returns 503 on the first attempt",
     "slack_timeout_after_post": "Slack posts the message but the response is lost",
     "crash_after_crm_write": "Worker crashes after the CRM write, before saving state",
+    "crm_write_504": "CRM returns 504 on every write-back attempt; an unrelated card still goes out",
     "invalid_transition": "Seller clicks Execute on a recommendation they never accepted",
     "unsupported_brief_claim": "Model returns a competitor quote that is not in the transcript",
     "ambiguous_person": "Two people could be the same person (scenario 2)",
@@ -83,6 +84,17 @@ def run(svc, name: str) -> dict:
         worker.process(svc)
         log("worker restarts and replays the row (search-before-create on gde_key)",
             f"CRM records: {len(svc.crm.records)}; nothing duplicated")
+    elif name == "crm_write_504":
+        d = svc.job_change(prov, payload); decision_id = d["id"]
+        svc.faults.arm("crm_write_fail", svc.cfg["delivery_max_attempts"])
+        out = svc.feedback(d["id"], "accept")
+        row = svc.store.one("SELECT status, attempts, last_error FROM outbox WHERE decision_id=? AND kind='crm_writeback'",
+                            (d["id"],))
+        log("seller accepts; every CRM write attempt returns 504",
+            f"run {out['state']}; outbox row {row['status']} after {row['attempts']} attempts; run flagged WRITEBACK_FAILED")
+        e4 = svc.event("S4")
+        d4 = svc.job_change(e4["provider"], e4["payload"])
+        log("an unrelated signal arrives (Elena Brooks)", f"{d4['outcome']} -> {d4['state']}; the dead row did not block it")
     elif name == "invalid_transition":
         d = svc.job_change(prov, payload); decision_id = d["id"]
         try:

@@ -10,6 +10,7 @@ KNOWN = {
     "crm_read_timeout": "CRM read times out while building account context",
     "enrichment_timeout": "Enrichment provider times out",
     "crash_after_crm_write": "Worker crashes after the CRM write, before state is saved",
+    "crm_write_fail": "CRM returns 504 on a write (write-back or compensation)",
     "llm_unsupported_claim": "Model returns a competitor mention whose quote is not in the source",
 }
 

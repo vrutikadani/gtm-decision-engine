@@ -59,7 +59,7 @@ Also in the demo:
 - **Review queue**
 - **Reliability panel**
 - **Data explorer:** every record says why it exists
-- **Failure injection** (demo only), with 12 injected failures:
+- **Failure injection** (demo only), with 13 injected failures:
   - duplicate webhook
   - second vendor reporting the same move
   - stale signal
@@ -69,6 +69,7 @@ Also in the demo:
   - Slack 503
   - Slack timeout after post
   - crash after a CRM write
+  - CRM 504 on every write-back
   - invalid transition
   - unsupported brief claim
   - ambiguous person
@@ -97,7 +98,7 @@ LLM provider: mock (deterministic)
 No external API keys required.
 ```
 
-Other targets: `make test` (40 tests), `make eval`, `python evals/threshold_sweep.py`. You can use Claude for the model calls with `GDE_LLM=anthropic ANTHROPIC_API_KEY=...`. The rules and validators stay the same.
+Other targets: `make test` (56 tests), `make eval`, `python evals/threshold_sweep.py`. You can use Claude for the model calls with `GDE_LLM=anthropic ANTHROPIC_API_KEY=...`. The rules and validators stay the same. This path is tested only with a stubbed API call, not against the live model.
 
 ## Evaluation
 
@@ -113,9 +114,10 @@ CI fails on any new critical identity result. The first eval run found two real 
 
 - **Headless:** one Python package (`gde/`, standard library only) behind a FastAPI app.
 - **Hosted demo:** the *same package* runs in the browser through Pyodide on GitHub Pages. No server, no keys, nothing leaves the tab.
-- **Storage:** SQLite, with explicit transactions.
-- **Side effects:** decisions and their side effects are written together. A worker performs them, and every side effect looks for its own earlier write before acting (Slack: message metadata; CRM: a `gde_key` property).
-- **Corrections:** a correction undoes the CRM writes it makes untrue.
+- **Storage:** SQLite, with explicit transactions. In memory by default and in the browser. With `GDE_DB=file.db` the database survives a restart, and a startup sweeper re-evaluates any run that was interrupted mid-decision ([ADR 0007](docs/adr/0007-sqlite-persistence.md)). The simulated Slack and CRM are in memory only.
+- **Side effects:** decisions and their side effects are written together. A worker performs them, and every side effect looks for its own earlier write before acting (Slack: message metadata; CRM: a `gde_key` property). Each row is retried up to 3 times, then dead-lettered and shown on the reliability panel. One failing row does not block the others ([ADR 0005](docs/adr/0005-outbox-and-idempotency.md)).
+- **Event order:** an older job move that arrives after a newer one for the same person is recorded but suppressed.
+- **Corrections:** a correction undoes the CRM writes it makes untrue, and edits the Slack card already posted to say it was withdrawn.
 
 | Doc | |
 |---|---|
@@ -125,6 +127,7 @@ CI fails on any new critical identity result. The first eval run found two real 
 | [FAILURE_POSTMORTEM.md](docs/FAILURE_POSTMORTEM.md) | The hardest real failure found while building this |
 | [SECURITY.md](docs/SECURITY.md) | PII, prompt injection, least privilege, demo-only controls |
 | [CODEBASE_GUIDE.md](docs/CODEBASE_GUIDE.md) | Product concept → file → function |
+| [INTERVIEW_WALKTHROUGH.md](docs/INTERVIEW_WALKTHROUGH.md) | A timed walkthrough: context, architecture, one trace, hard questions |
 
 ## Limitations
 
@@ -133,6 +136,8 @@ CI fails on any new critical identity result. The first eval run found two real 
 - Not built:
   - re-routing cards when ownership changes after delivery
   - checking for human edits before compensating
+  - re-driving dead-lettered side effects from the UI (they are shown, not retried)
+  - a recovery sweeper safe for more than one process (it runs once, at startup)
   - webhook signature verification
 
 Each one is discussed, with what I would do, in [TRADEOFFS.md](docs/TRADEOFFS.md), [SECURITY.md](docs/SECURITY.md) and the [postmortem](docs/FAILURE_POSTMORTEM.md).
