@@ -82,7 +82,7 @@ def submit(svc, decision_id: str, action: str, reason: str | None = None, days: 
         elif action == "snooze":
             n = days or svc.cfg["snooze_default_days"]
             until = fmt(clock.now() + timedelta(days=n))
-            s.x("UPDATE runs SET doc=? WHERE id=?", (json.dumps({"snoozed_until": until, "decision_id": decision_id}), run_id))
+            state.update_doc(s, run_id, snoozed_until=until, decision_id=decision_id)
             effects.append(f"resurfaces {until}")
         elif action == "dismiss":
             until = _suppress(s, clock, "play_account", f"{play}|{acct}", svc.cfg["dismiss_suppress_days"],

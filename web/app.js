@@ -514,6 +514,7 @@ async function viewDecisions() {
 async function viewReliability() {
   const r = await call("GET", "/reliability");
   const tiles = [["Failed workflows", r.failed_workflows.length], ["Held (retryable)", r.held.length], ["Deliveries retried", r.retries.length],
+    ["Dead-lettered side effects", r.dead_letters.length], ["CRM write-back failed", r.writeback_failed.length],
     ["Identity / ownership reviews open", r.review_queue.length], ["Duplicate events suppressed", r.duplicates_suppressed],
     ["Unsupported claims rejected", r.unsupported_claims_rejected], ["Content quarantined", r.content_quarantined],
     ["Invalid transitions rejected", r.invalid_transitions_rejected], ["Stale signals suppressed", r.stale_signals_suppressed]];
@@ -524,7 +525,7 @@ async function viewReliability() {
     <p class="muted small" style="margin-bottom:0">Trust shows up as accept and execute rates, and as corrections that fall over time. A rising wrong_person rate points at identity thresholds or CRM data quality.</p></div>
   <div class="grid-eq"><div class="stack">
     <div class="panel"><h2>Provider health</h2><table><tbody>${Object.entries(r.provider_health).map(([k, v]) => `<tr><td>${esc(k)}</td><td>${badge(v.status)}</td><td class="muted">${v.recent_errors} recent errors</td></tr>`).join("")}</tbody></table></div>
-    <div class="panel"><h2>Held and failed runs</h2>${[...r.held, ...r.failed_workflows].map((x) => `<div class="rec"><span class="k">${esc(x.id)}</span>${badge(x.state)}${x.state === "HELD" ? `<button class="btn sm" data-retry="${esc(x.id)}">Retry</button>` : ""}</div>`).join("") || `<div class="muted">none</div>`}</div>
+    <div class="panel"><h2>Held and failed runs</h2>${[...r.held, ...r.failed_workflows, ...r.writeback_failed].map((x) => `<div class="rec"><span class="k">${esc(x.id)}</span>${badge(x.state)}${(x.flags || []).map((f) => badge(f)).join("")}${x.state === "HELD" ? `<button class="btn sm" data-retry="${esc(x.id)}">Retry</button>` : ""}</div>`).join("") || `<div class="muted">none</div>`}</div>
     <div class="panel"><h2>Retries</h2>${r.retries.length ? `<table><thead><tr><th>Outbox</th><th>Kind</th><th>Status</th><th>Attempts</th><th>Last error</th></tr></thead><tbody>${r.retries.map((x) => `<tr><td class="mono">${esc(x.id)}</td><td>${esc(x.kind)}</td><td>${badge(x.status)}</td><td>${x.attempts}</td><td>${esc(x.last_error || "")}</td></tr>`).join("")}</tbody></table>` : `<div class="muted">none</div>`}</div>
   </div><div class="panel"><h2>Recent audit events</h2><div class="tablewrap"><table><tbody>${r.recent_audit.map((a) => `<tr><td class="mono">${a.seq}</td><td class="mono">${esc(a.kind)}</td><td class="mono small">${esc(a.run_id || "")}</td><td class="small">${esc(JSON.stringify(a.detail))}</td></tr>`).join("")}</tbody></table></div></div></div>`;
 }

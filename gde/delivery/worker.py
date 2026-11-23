@@ -1,18 +1,26 @@
 """Outbox worker. Decisions and their side effects are written in one transaction as
 outbox rows; this worker performs them. If it crashes midway, the row is still
 pending and the next pass redoes it, which is only safe because every side effect
-looks for its own earlier write first (Slack: message metadata; CRM: gde_key)."""
+looks for its own earlier write first (Slack: message metadata; CRM: gde_key).
+
+Every row kind (Slack post, CRM write-back, CRM compensation) gets the same failure
+handling: an exception from the adapter is caught per row, counted as one attempt,
+and the row stays pending for the next pass. After `delivery_max_attempts` the row
+is dead-lettered (status 'dead') and the run is flagged so the reliability panel
+shows it. One failing row never stops the other rows from being processed."""
 from __future__ import annotations
 
 import json
 
 from .. import audit
 from ..workflows import state
-from .slack import SlackError, SlackTimeout
+
+# outbox kind -> what a dead row means for the run
+DEAD_FLAG = {"crm_writeback": "WRITEBACK_FAILED", "crm_compensate": "COMPENSATION_FAILED"}
 
 
 class WorkerCrash(Exception):
-    pass
+    """Simulated process death. Not caught per row: the whole pass stops, as it would."""
 
 
 def _bump(store, row, status, err):
@@ -34,16 +42,7 @@ def deliver_slack(svc, row) -> None:
             audit.log(s, clock, "slack_recovered_existing_post", run_id, ts=found["ts"], attempt=row["attempts"] + 1)
         return
     decision = s.doc("decisions", row["decision_id"])
-    try:
-        msg = slack.post(doc["channel"], decision["surface"], doc["key"])
-    except (SlackTimeout, SlackError) as e:
-        with s.tx():
-            final = row["attempts"] + 1 >= svc.cfg["delivery_max_attempts"]
-            _bump(s, row, "failed" if final else "pending", str(e))
-            audit.log(s, clock, "slack_attempt_failed", run_id, attempt=row["attempts"] + 1, error=str(e), final=final)
-            if final:
-                state.transition(s, clock, run_id, "DELIVERY_FAILED", f"Slack failed {row['attempts'] + 1} times: {e}")
-        return
+    msg = slack.post(doc["channel"], decision["surface"], doc["key"])  # errors are handled by process()
     with s.tx():
         s.x("UPDATE outbox SET status='done', attempts=attempts+1, doc=? WHERE id=?",
             (json.dumps({**doc, "ts": msg["ts"]}), row["id"]))
@@ -92,6 +91,30 @@ def crm_compensate(svc, row) -> None:
 HANDLERS = {"slack": deliver_slack, "crm_writeback": crm_writeback, "crm_compensate": crm_compensate}
 
 
+def _fail(svc, row, err: str) -> None:
+    """One failed attempt. Pending until the cap, then dead-lettered and the run flagged."""
+    s, clock = svc.store, svc.clock
+    run_id = s.one("SELECT run_id FROM decisions WHERE id=?", (row["decision_id"],))["run_id"]
+    attempt = row["attempts"] + 1
+    final = attempt >= svc.cfg["delivery_max_attempts"]
+    with s.tx():
+        s.x("UPDATE outbox SET status=?, attempts=?, last_error=? WHERE id=?",
+            ("dead" if final else "pending", attempt, err, row["id"]))
+        kind = "slack" if row["kind"] == "slack" else "crm"
+        audit.log(s, clock, f"{kind}_attempt_failed", run_id, outbox=row["id"], row_kind=row["kind"],
+                  attempt=attempt, error=err, final=final)
+        if not final:
+            return
+        audit.log(s, clock, "outbox_dead_lettered", run_id, outbox=row["id"], row_kind=row["kind"], attempts=attempt)
+        if row["kind"] == "slack":
+            try:
+                state.transition(s, clock, run_id, "DELIVERY_FAILED", f"Slack failed {attempt} times: {err}")
+            except state.InvalidTransition:
+                pass  # the run moved on (e.g. corrected); the dead row and audit entry still record it
+        else:
+            state.flag(s, clock, run_id, DEAD_FLAG[row["kind"]], f"{row['kind']} {row['id']} failed {attempt} times: {err}")
+
+
 def process(svc, max_passes: int = 5) -> dict:
     """Drain pending outbox rows. Retries happen across passes (backoff is simulated)."""
     crashed = 0
@@ -105,5 +128,8 @@ def process(svc, max_passes: int = 5) -> dict:
             except WorkerCrash:
                 crashed += 1
                 return {"crashed": crashed, "pending": len(rows)}
+            except Exception as e:  # noqa: BLE001 - any adapter error is one failed attempt for this row only
+                _fail(svc, row, f"{type(e).__name__}: {e}")
     pending = svc.store.one("SELECT COUNT(*) n FROM outbox WHERE status='pending'")["n"]
-    return {"crashed": crashed, "pending": pending}
+    dead = svc.store.one("SELECT COUNT(*) n FROM outbox WHERE status='dead'")["n"]
+    return {"crashed": crashed, "pending": pending, "dead": dead}

@@ -111,7 +111,8 @@ class Service:
             "rules": [{"step": x["label"], "status": x["status"], "rule": x["rule"], "detail": x["detail"]} for x in d["trace"]],
             "model": {"used": bool(d["llm_calls"]), "calls": d["llm_calls"],
                       "boundary": "labels prospect intent and drafts one sentence of copy; never chooses identity, play, owner or writes"},
-            "state": {"current": self._fresh(d)["state"], "transitions": state.history(s, d["run_id"])},
+            "state": {"current": self._fresh(d)["state"], "flags": state.flags(s, d["run_id"]),
+                      "transitions": state.history(s, d["run_id"])},
             "output": {"outcome": d["outcome"], "reason": d["reason"], "surface": d["surface"]},
             "side_effects": {"outbox": outbox,
                              "slack": [m for m in self.slack.messages if m["metadata"]["gde_key"].startswith(decision_id)],
@@ -208,7 +209,8 @@ class Service:
         s = self.store
         kinds = {r["kind"]: r["n"] for r in s.all("SELECT kind, COUNT(*) n FROM audit GROUP BY kind")}
         health = {}
-        for name, evts in {"slack": ["slack_attempt_failed"], "crm": ["context_unavailable", "worker_crashed"],
+        for name, evts in {"slack": ["slack_attempt_failed"],
+                           "crm": ["context_unavailable", "worker_crashed", "crm_attempt_failed"],
                            "enrichment": ["enrichment_cache_used"], "llm": ["unsupported_claim_rejected"]}.items():
             n = sum(kinds.get(e, 0) for e in evts)
             health[name] = {"recent_errors": n, "status": "degraded" if n else "ok"}
@@ -222,6 +224,10 @@ class Service:
             "failed_workflows": s.all("SELECT id, state, updated_at FROM runs WHERE state IN ('DELIVERY_FAILED')"),
             "held": s.all("SELECT id, state, updated_at FROM runs WHERE state='HELD'"),
             "retries": s.all("SELECT id, decision_id, kind, status, attempts, last_error FROM outbox WHERE attempts > 1 OR last_error IS NOT NULL"),
+            # side effects that hit the attempt cap: nothing retries them; a person must look
+            "dead_letters": s.all("SELECT id, decision_id, kind, attempts, last_error FROM outbox WHERE status='dead' ORDER BY id"),
+            "writeback_failed": [{"id": r["id"], "state": r["state"], "flags": sorted(state.flags(s, r["id"]))}
+                                 for r in s.all("SELECT id, state FROM runs ORDER BY id") if state.flags(s, r["id"])],
             "review_queue": self.reviews(),
             "duplicates_suppressed": kinds.get("duplicate_suppressed", 0) + s.one("SELECT COUNT(*) n FROM runs WHERE state='DUPLICATE'")["n"],
             "unsupported_claims_rejected": kinds.get("unsupported_claim_rejected", 0),

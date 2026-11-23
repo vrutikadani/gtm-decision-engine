@@ -11,6 +11,10 @@ class CRMTimeout(Exception):
     pass
 
 
+class CRMWriteError(Exception):
+    """A write the CRM rejected or never answered (5xx, gateway timeout)."""
+
+
 class SimulatedCRM:
     def __init__(self, store, clock, faults):
         self.store, self.clock, self.faults = store, clock, faults
@@ -49,6 +53,8 @@ class SimulatedCRM:
             return {**existing, "created": False}
         target = self.find(target_key)
         self.api_calls += 1
+        if self.faults.fire("crm_write_fail"):
+            raise CRMWriteError("504 gateway timeout on revert")
         action = "cancel_task" if target["kind"] == "create_task" else "remove_" + target["kind"]
         target.update(reverted=True, reverted_at=self.clock.iso(), revert_reason=reason)
         rec = {"id": f"crm-revert-{len(self.records) + 1}", "kind": "revert", "action": action,
@@ -61,6 +67,8 @@ class SimulatedCRM:
         if existing:
             return {**existing, "created": False}
         self.api_calls += 1
+        if self.faults.fire("crm_write_fail"):
+            raise CRMWriteError(f"504 gateway timeout on {kind}")
         rec = {"id": f"crm-{kind}-{len(self.records) + 1}", "kind": kind, "gde_key": gde_key,
                "at": self.clock.iso(), **fields}
         self.records.append(rec)
