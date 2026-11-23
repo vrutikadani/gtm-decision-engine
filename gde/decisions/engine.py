@@ -36,6 +36,29 @@ LABELS = {"signal": "Job change signal", "dedupe": "Duplicate check", "freshness
           "qualification": "Account qualification", "suppression": "Seller feedback / cooldowns",
           "conversation_context": "Recent conversations", "plays": "Approved play eligibility",
           "decision": "Decision"}
+INTENT_LABELS = {"evaluating", "pricing", "none"}
+
+
+def validate_intent(label, confidence) -> tuple[str | None, float, list[str]]:
+    """Code decides what a model label is allowed to be. An unknown label is dropped
+    (returned as None); a confidence outside [0, 1] is clamped. Both are recorded."""
+    problems = []
+    if not isinstance(label, str) or label not in INTENT_LABELS:
+        problems.append(f"label {label!r} not in {sorted(INTENT_LABELS)}")
+        label = None
+    try:
+        conf = float(confidence)
+        if conf != conf:  # NaN
+            raise ValueError
+    except (TypeError, ValueError):
+        problems.append(f"confidence {confidence!r} is not a number")
+        return None, 0.0, problems
+    if not 0 <= conf <= 1:
+        problems.append(f"confidence {conf} clamped to [0, 1]")
+        conf = min(1.0, max(0.0, conf))
+    return label, conf, problems
+
+
 OUTCOME_STATE = {"DELIVER": "DELIVER_PENDING", "NEEDS_REVIEW": "NEEDS_REVIEW", "HOLD": "HELD", "SUPPRESS": "SUPPRESSED"}
 
 
@@ -231,10 +254,18 @@ class Engine:
                 if INJECTION.search(u["text"]):  # same quarantine as the brief pipeline
                     audit.log(s, clock, "content_quarantined", c["run_id"], conversation=conv["id"], utterance=i)
                     continue
-                label, conf = self.llm.classify_intent(u["text"])
+                raw_label, raw_conf = self.llm.classify_intent(u["text"])
+                label, conf, problems = validate_intent(raw_label, raw_conf)
                 c["llm_calls"].append({"purpose": "classify_intent", "provider": self.llm.name, "model": self.llm.model,
-                                       "input": f"{conv['id']}#{i}", "output": {"label": label, "confidence": conf},
-                                       "validated": label in {"evaluating", "pricing", "none"} and 0 <= conf <= 1})
+                                       "input": f"{conv['id']}#{i}",
+                                       "output": {"label": raw_label, "confidence": raw_conf},
+                                       "used": {"label": label, "confidence": conf} if label else None,
+                                       "validated": not problems, "problems": problems})
+                if problems:
+                    audit.log(s, clock, "llm_output_rejected" if label is None else "llm_output_clamped", c["run_id"],
+                              purpose="classify_intent", input=f"{conv['id']}#{i}", problems=problems)
+                if label is None:
+                    continue  # an unknown label is dropped, never shown to a seller
                 if label != "none" and conf >= 0.6:
                     intents.append({"label": label, "conversation_id": conv["id"], "quote": u["text"],
                                     "age_days": round(conv_age, 1), "confidence": conf, "title": conv["title"]})

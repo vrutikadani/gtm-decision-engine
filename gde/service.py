@@ -237,7 +237,7 @@ class Service:
         health = {}
         for name, evts in {"slack": ["slack_attempt_failed"],
                            "crm": ["context_unavailable", "worker_crashed", "crm_attempt_failed"],
-                           "enrichment": ["enrichment_cache_used"], "llm": ["unsupported_claim_rejected"]}.items():
+                           "enrichment": ["enrichment_cache_used"], "llm": ["unsupported_claim_rejected", "llm_output_rejected", "llm_output_clamped"]}.items():
             n = sum(kinds.get(e, 0) for e in evts)
             health[name] = {"recent_errors": n, "status": "degraded" if n else "ok"}
         fb = [f["action"] + (":" + f["reason"] if f.get("reason") else "") for f in s.docs("SELECT doc FROM feedback")]
