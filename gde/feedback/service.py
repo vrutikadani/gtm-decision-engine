@@ -98,6 +98,9 @@ def submit(svc, decision_id: str, action: str, reason: str | None = None, days: 
             s.x("INSERT INTO outbox VALUES(?,?,?,?,?,?,?)", (s.next_id("OUT"), decision_id, "crm_compensate", "pending",
                 0, None, json.dumps({"kinds": COMPENSATE[reason], "reason": f"seller correction: {reason}"})))
             effects.append("queued CRM compensation (undoes any write-back already made)")
+            s.x("INSERT INTO outbox VALUES(?,?,?,?,?,?,?)", (s.next_id("OUT"), decision_id, "slack_retract", "pending",
+                0, None, json.dumps({"channel": d["surface"]["owner"]["slack"], "reason": f"seller correction: {reason}"})))
+            effects.append("queued edit of the posted Slack card to mark it withdrawn")
             if reason == "wrong_person":
                 # the watermark this run set belonged to the wrong person
                 s.x("DELETE FROM subject_watermarks WHERE person_id=? AND run_id=?", (person, run_id))

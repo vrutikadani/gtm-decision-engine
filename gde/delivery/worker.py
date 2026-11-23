@@ -16,7 +16,8 @@ from .. import audit
 from ..workflows import state
 
 # outbox kind -> what a dead row means for the run
-DEAD_FLAG = {"crm_writeback": "WRITEBACK_FAILED", "crm_compensate": "COMPENSATION_FAILED"}
+DEAD_FLAG = {"crm_writeback": "WRITEBACK_FAILED", "crm_compensate": "COMPENSATION_FAILED",
+             "slack_retract": "RETRACTION_FAILED"}
 
 
 class WorkerCrash(Exception):
@@ -88,7 +89,28 @@ def crm_compensate(svc, row) -> None:
             (json.dumps({**doc, "reverted": done}), row["id"]))
 
 
-HANDLERS = {"slack": deliver_slack, "crm_writeback": crm_writeback, "crm_compensate": crm_compensate}
+def slack_retract(svc, row) -> None:
+    """Edit every card already posted for a corrected recommendation (the original and
+    any resurfaced copy) so the seller no longer sees it as live advice."""
+    s, clock, slack = svc.store, svc.clock, svc.slack
+    doc = json.loads(row["doc"])
+    run_id = s.one("SELECT run_id FROM decisions WHERE id=?", (row["decision_id"],))["run_id"]
+    edited = []
+    for m in slack.find_prefix(doc["channel"], row["decision_id"]):
+        if (m["blocks"] or {}).get("retracted"):
+            continue
+        slack.update(m["channel"], m["ts"], {"retracted": True, "decision_id": row["decision_id"],
+                                             "text": f"Withdrawn: {doc['reason']}. No action needed on this card.",
+                                             "original": m["blocks"]})
+        edited.append(m["ts"])
+        audit.log(s, clock, "slack_card_retracted", run_id, ts=m["ts"], reason=doc["reason"])
+    with s.tx():
+        s.x("UPDATE outbox SET status='done', attempts=attempts+1, doc=? WHERE id=?",
+            (json.dumps({**doc, "edited": edited}), row["id"]))
+
+
+HANDLERS = {"slack": deliver_slack, "crm_writeback": crm_writeback, "crm_compensate": crm_compensate,
+            "slack_retract": slack_retract}
 
 
 def _fail(svc, row, err: str) -> None:
@@ -100,7 +122,7 @@ def _fail(svc, row, err: str) -> None:
     with s.tx():
         s.x("UPDATE outbox SET status=?, attempts=?, last_error=? WHERE id=?",
             ("dead" if final else "pending", attempt, err, row["id"]))
-        kind = "slack" if row["kind"] == "slack" else "crm"
+        kind = "slack" if row["kind"].startswith("slack") else "crm"
         audit.log(s, clock, f"{kind}_attempt_failed", run_id, outbox=row["id"], row_kind=row["kind"],
                   attempt=attempt, error=err, final=final)
         if not final:

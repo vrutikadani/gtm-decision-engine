@@ -163,3 +163,27 @@ def test_draft_opener_runs_outside_the_db_transaction(svc):
     svc.llm.draft_opener = spy
     d = svc.job_change(*ev(svc, "S1"))
     assert d["outcome"] == "DELIVER" and depths == [0]
+
+
+# --- doc-honesty follow-ups: card retraction and the optional real model ----------------
+
+def test_correction_edits_the_already_posted_slack_card(svc):
+    d = svc.job_change(*ev(svc, "S5"))
+    svc.feedback(d["id"], "correct", reason="wrong_person")
+    [msg] = svc.slack.messages  # edited in place, not a second message
+    assert msg["blocks"]["retracted"] and "wrong_person" in msg["blocks"]["text"]
+    svc.store.x("UPDATE outbox SET status='pending' WHERE kind='slack_retract'")  # replay
+    worker.process(svc)
+    assert len(svc.slack.messages) == 1 and "retracted" not in msg["blocks"]["original"]
+
+
+def test_anthropic_draft_opener_is_validated_by_the_engine(svc, monkeypatch):
+    from gde.llm.provider import AnthropicProvider, FallbackProvider, MockProvider
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    real = AnthropicProvider()
+    real._call = lambda system, user: "Priya, we guarantee 40% savings vs Competitor Alpha!"
+    svc.engine.llm = FallbackProvider(real, MockProvider())
+    d = svc.job_change(*ev(svc, "S1"))
+    call = next(c for c in d["llm_calls"] if c["purpose"] == "draft_opener")
+    assert call["validated"] is False
+    assert d["surface"]["suggested_opener"] == "Congrats on the new role at Northwind Dermatology Group, Priya."
