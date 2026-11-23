@@ -100,14 +100,17 @@ class Engine:
         return self.evaluate(run_id)
 
     # ---------------------------------------------------------------- evaluate
-    def evaluate(self, run_id: str, review: dict | None = None) -> dict:
+    def evaluate(self, run_id: str, review: dict | None = None, resume: bool = False) -> dict:
+        """resume=True is the recovery sweeper picking up a run that was interrupted after
+        it was committed EVALUATING; it is already there, so no transition is made."""
         s, clock, cfg = self.store, self.clock, self.cfg
         run = s.one("SELECT * FROM runs WHERE id=?", (run_id,))
         sig_row = s.one("SELECT * FROM signals WHERE id=?", (run["signal_id"],))
         sig = json.loads(sig_row["doc"])
         jc = JobChange(**sig["normalized"])
-        with s.tx():
-            state.transition(s, clock, run_id, "EVALUATING", "review resolved" if review else "evaluate")
+        if not (resume and run["state"] == "EVALUATING"):
+            with s.tx():
+                state.transition(s, clock, run_id, "EVALUATING", "review resolved" if review else "evaluate")
         t, llm_calls = Trace(), []
         age = clock.days_since(jc.detected_at)
         t.add("signal", "RECEIVED", f"{jc.name} -> {jc.new_title} at {jc.new_company}",

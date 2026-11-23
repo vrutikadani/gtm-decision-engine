@@ -33,23 +33,49 @@ class Service:
         self.precedence = load_json("config/precedence.json")
         self.store = Store(db)
         self.faults = Faults(enabled=demo)
-        self.reset(_init=True)
+        # Seed reference data only into an empty database. A file database keeps its runs,
+        # decisions and outbox across restarts; only an explicit demo reset wipes it.
+        restarted = not self.store.is_empty()
+        if not restarted:
+            self.store.reset(self.world)
+        self._wire()
+        if restarted:
+            audit.log(self.store, self.clock, "service_restarted")
+            self.recover()
+        else:
+            audit.log(self.store, self.clock, "demo_reset")
 
     # ------------------------------------------------------------------ setup
-    def reset(self, _init: bool = False) -> dict:
-        if not _init:
-            self._demo_only()
-        self.clock = Clock(self.world["demo_now"])
+    def reset(self) -> dict:
+        """Demo only: wipe every table and reseed from fixtures."""
+        self._demo_only()
         self.faults.clear()
         self.store.reset(self.world)
+        self._wire()
+        audit.log(self.store, self.clock, "demo_reset")
+        return {"ok": True, "now": self.clock.iso(), "llm": self.llm.name}
+
+    def _wire(self) -> None:
+        self.clock = Clock(self.world["demo_now"])
         self.crm = SimulatedCRM(self.store, self.clock, self.faults)
         self.slack = SimulatedSlack(self.clock, self.faults)
         self.enrichment = Enrichment(self.store, self.clock, self.faults)
         self.llm = get_provider(self.faults)
         self.engine = Engine(self.store, self.clock, self.crm, self.enrichment, self.llm, self.cfg, self.plays,
                              self.precedence)
-        audit.log(self.store, self.clock, "demo_reset")
-        return {"ok": True, "now": self.clock.iso(), "llm": self.llm.name}
+
+    def recover(self) -> dict:
+        """Recovery sweeper, run on startup. A run is committed EVALUATING before the engine
+        decides, and the decision is committed with the next state in one transaction
+        (Engine._persist). So a run still EVALUATING with no process working on it was
+        interrupted between the two. Re-evaluate it once; then drain the outbox, which
+        replays any side effect that was committed but not performed."""
+        stuck = [r["id"] for r in self.store.all("SELECT id FROM runs WHERE state='EVALUATING' ORDER BY id")]
+        for run_id in stuck:
+            audit.log(self.store, self.clock, "run_recovered", run_id, reason="found EVALUATING on startup")
+            self.engine.evaluate(run_id, resume=True)
+        out = worker.process(self)
+        return {"recovered": stuck, **out}
 
     # ---------------------------------------------------------------- signals
     def job_change(self, provider: str, payload: dict) -> dict:
