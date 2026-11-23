@@ -330,19 +330,25 @@ class Engine:
         return base + " with no conflicting active opportunity."
 
     # ------------------------------------------------------------------ output
+    def _draft_opener(self, c: dict) -> str:
+        """The one model call on the delivery path. Called before _persist opens its
+        transaction: a slow or hung model must not hold the database write lock."""
+        p, acct = c["person"], c["context"]["account"]
+        facts = {"first_name": p["name"].split()[0], "account": acct["name"],
+                 "previous_company": c["previous_account"]["name"]}
+        opener = self.llm.draft_opener(facts)
+        ok = (isinstance(opener, str) and len(opener) <= 240 and facts["first_name"] in opener
+              and not re.search(r"\d|Competitor|guarantee", opener))
+        c["llm_calls"].append({"purpose": "draft_opener", "provider": self.llm.name, "model": self.llm.model,
+                               "input": facts, "output": opener, "validated": ok})
+        return opener if ok else f"Congrats on the new role at {acct['name']}, {facts['first_name']}."
+
     def _surface(self, c: dict, decision_id: str) -> dict:
         jc, p, acct, play = c["jc"], c["person"], c["context"]["account"], c["play"]
         opp = c["context"]["open_opportunities"][0] if c["context"]["open_opportunities"] else None
         owner_id = opp["owner_id"] if play["deliver_to"] == "opportunity_owner" and opp else acct["owner_id"]
         owner = self.store.doc("reps", owner_id)
-        facts = {"first_name": p["name"].split()[0], "account": acct["name"],
-                 "previous_company": c["previous_account"]["name"]}
-        opener = self.llm.draft_opener(facts)
-        ok = (len(opener) <= 240 and facts["first_name"] in opener and not re.search(r"\d|Competitor|guarantee", opener))
-        c["llm_calls"].append({"purpose": "draft_opener", "provider": self.llm.name, "model": self.llm.model,
-                               "input": facts, "output": opener, "validated": ok})
-        if not ok:
-            opener = f"Congrats on the new role at {acct['name']}, {facts['first_name']}."
+        opener = c["opener"]
         why_now = (f"{p['name']} started as {jc.new_title} at {acct['name']} "
                    f"(reported {c['age']:.0f} days ago). Former champion at {c['previous_account']['name']}.")
         if c["intents"]:
@@ -361,6 +367,8 @@ class Engine:
 
     def _persist(self, run_id: str, c: dict, out: dict) -> dict:
         s, clock = self.store, self.clock
+        if out["outcome"] == "DELIVER":
+            c["opener"] = self._draft_opener(c)  # outside the transaction (see _draft_opener)
         with s.tx():
             did = s.next_id("DEC")
             surface = self._surface(c, did) if out["outcome"] == "DELIVER" else None
