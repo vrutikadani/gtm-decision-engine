@@ -43,6 +43,7 @@ CREATE TABLE IF NOT EXISTS outbox(id TEXT PRIMARY KEY, decision_id TEXT, kind TE
 CREATE TABLE IF NOT EXISTS llm_calls(id TEXT PRIMARY KEY, run_id TEXT, purpose TEXT, doc TEXT);
 CREATE TABLE IF NOT EXISTS audit(seq INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT, kind TEXT, run_id TEXT, detail TEXT);
 CREATE TABLE IF NOT EXISTS briefs(id TEXT PRIMARY KEY, created_at TEXT, doc TEXT);
+CREATE TABLE IF NOT EXISTS subject_watermarks(person_id TEXT PRIMARY KEY, detected_at TEXT, run_id TEXT);
 CREATE TABLE IF NOT EXISTS counters(name TEXT PRIMARY KEY, value INTEGER);
 """
 

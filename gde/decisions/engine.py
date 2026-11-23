@@ -20,6 +20,7 @@ import re
 import sqlite3
 
 from .. import audit
+from ..clock import parse
 from ..accounts.qualification import qualify
 from ..briefs.service import INJECTION
 from ..champions.resolution import resolve
@@ -29,10 +30,10 @@ from ..plays.registry import evaluate as evaluate_plays
 from ..providers.job_change import JobChange, move_key, normalize, subject_keys
 from ..workflows import state
 
-STEPS = ["signal", "dedupe", "freshness", "identity", "champion", "context", "qualification",
+STEPS = ["signal", "dedupe", "freshness", "identity", "ordering", "champion", "context", "qualification",
          "suppression", "conversation_context", "plays", "decision"]
 LABELS = {"signal": "Job change signal", "dedupe": "Duplicate check", "freshness": "Signal freshness",
-          "identity": "Person identity", "champion": "Champion status", "context": "Account context",
+          "identity": "Person identity", "ordering": "Event order", "champion": "Champion status", "context": "Account context",
           "qualification": "Account qualification", "suppression": "Seller feedback / cooldowns",
           "conversation_context": "Recent conversations", "plays": "Approved play eligibility",
           "decision": "Decision"}
@@ -178,6 +179,23 @@ class Engine:
         person = s.doc("people", ident["person_id"])
         c["person"] = person
         c["previous_account"] = s.doc("accounts", person["account_id"])
+
+        # event order: vendors deliver late and out of order. The watermark is the newest
+        # detected_at already processed for this person (any company). Vendor subject keys
+        # include the new domain, so two different moves never share one; the resolved
+        # person is the only key that does.
+        wm = s.one("SELECT * FROM subject_watermarks WHERE person_id=?", (person["id"],))
+        rule = "act only on a person's newest move: detected_at >= watermark"
+        if wm and wm["run_id"] != c["run_id"] and parse(wm["detected_at"]) > parse(jc.detected_at):
+            c["out_of_order"] = True
+            t.add("ordering", "OUT_OF_ORDER", f"detected {jc.detected_at}; a newer move for {person['name']} "
+                  f"(detected {wm['detected_at']}, {wm['run_id']}) was already processed", rule,
+                  watermark=wm["detected_at"], watermark_run=wm["run_id"])
+            return {"outcome": "SUPPRESS",
+                    "reason": f"Out of order: a newer job change for {person['name']} (detected {wm['detected_at'][:10]}, "
+                              f"{wm['run_id']}) was already processed. This older move is recorded, not acted on."}
+        t.add("ordering", "PASS", f"newest move seen for {person['name']}" if not wm or wm["run_id"] == c["run_id"]
+              else f"newer than the watermark {wm['detected_at']} ({wm['run_id']})", rule)
 
         # champion
         ch = validate(s, clock, person["id"], cfg["champion"])
@@ -361,6 +379,11 @@ class Engine:
             for call in c["llm_calls"]:
                 s.x("INSERT INTO llm_calls VALUES(?,?,?,?)", (s.next_id("LLM"), run_id, call["purpose"], json.dumps(call)))
             state.transition(s, clock, run_id, OUTCOME_STATE[out["outcome"]], out["reason"])
+            if c.get("person") and not c.get("out_of_order"):
+                wm = s.one("SELECT detected_at FROM subject_watermarks WHERE person_id=?", (c["person"]["id"],))
+                if not wm or parse(c["jc"].detected_at) >= parse(wm["detected_at"]):
+                    s.x("INSERT OR REPLACE INTO subject_watermarks VALUES(?,?,?)",
+                        (c["person"]["id"], c["jc"].detected_at, run_id))
             if out["outcome"] == "DELIVER":
                 channel = surface["owner"]["slack"]
                 s.x("INSERT INTO outbox VALUES(?,?,?,?,?,?,?)", (s.next_id("OUT"), did, "slack", "pending", 0, None,

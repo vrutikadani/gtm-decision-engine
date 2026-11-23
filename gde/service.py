@@ -261,6 +261,8 @@ class Service:
             "invalid_transitions_rejected": kinds.get("invalid_transition_rejected", 0),
             "stale_signals_suppressed": sum(1 for d in s.docs("SELECT doc FROM decisions")
                                             if any(x["step"] == "freshness" and x["status"] == "FAIL" for x in d["trace"])),
+            "out_of_order_suppressed": sum(1 for d in s.docs("SELECT doc FROM decisions")
+                                           if any(x["step"] == "ordering" and x["status"] == "OUT_OF_ORDER" for x in d["trace"])),
             "provider_health": health,
             "recent_audit": audit.recent(s, 40),
         }

@@ -517,7 +517,8 @@ async function viewReliability() {
     ["Dead-lettered side effects", r.dead_letters.length], ["CRM write-back failed", r.writeback_failed.length],
     ["Identity / ownership reviews open", r.review_queue.length], ["Duplicate events suppressed", r.duplicates_suppressed],
     ["Unsupported claims rejected", r.unsupported_claims_rejected], ["Content quarantined", r.content_quarantined],
-    ["Invalid transitions rejected", r.invalid_transitions_rejected], ["Stale signals suppressed", r.stale_signals_suppressed]];
+    ["Invalid transitions rejected", r.invalid_transitions_rejected], ["Stale signals suppressed", r.stale_signals_suppressed],
+    ["Out-of-order signals suppressed", r.out_of_order_suppressed]];
   return `<div class="head"><h1>Reliability</h1><p class="presenter">Counts since the last reset. No uptime percentages: this is a demo, and these are real counters from this session.</p></div>
   <div class="tiles">${tiles.map(([k, v]) => `<div class="tile ${v ? "alert" : ""}"><div class="v">${v}</div><div class="k">${k}</div></div>`).join("")}</div>
   <div class="panel" style="margin-bottom:16px"><h2>Seller adoption</h2><div class="row">${["delivered", "accept", "execute", "snooze", "dismiss", "correct"].map((k) =>
