@@ -125,8 +125,9 @@ class Engine:
 
     # ---------------------------------------------------------------- evaluate
     def evaluate(self, run_id: str, review: dict | None = None, resume: bool = False) -> dict:
-        """resume=True is the recovery sweeper picking up a run that was interrupted after
-        it was committed EVALUATING; it is already there, so no transition is made."""
+        """resume=True means the caller already committed the run EVALUATING (the recovery
+        sweeper, or resolve_review), so no transition is made. A run still RECEIVED is moved
+        to EVALUATING as usual."""
         s, clock, cfg = self.store, self.clock, self.cfg
         run = s.one("SELECT * FROM runs WHERE id=?", (run_id,))
         sig_row = s.one("SELECT * FROM signals WHERE id=?", (run["signal_id"],))

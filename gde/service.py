@@ -65,17 +65,35 @@ class Service:
                              self.precedence)
 
     def recover(self) -> dict:
-        """Recovery sweeper, run on startup. A run is committed EVALUATING before the engine
-        decides, and the decision is committed with the next state in one transaction
-        (Engine._persist). So a run still EVALUATING with no process working on it was
-        interrupted between the two. Re-evaluate it once; then drain the outbox, which
-        replays any side effect that was committed but not performed."""
-        stuck = [r["id"] for r in self.store.all("SELECT id FROM runs WHERE state='EVALUATING' ORDER BY id")]
+        """Recovery sweeper, run on startup. Ingest commits a run RECEIVED; evaluate commits
+        it EVALUATING before the engine decides; the decision is committed with the next
+        state in one transaction (Engine._persist). So a run still RECEIVED or EVALUATING
+        with no process working on it was interrupted before its decision. Evaluate it once,
+        with the reviewer's committed choice if a review is what it was resuming; then drain
+        the outbox, which replays any side effect that was committed but not performed."""
+        stuck = [r["id"] for r in self.store.all(
+            "SELECT id FROM runs WHERE state IN ('RECEIVED', 'EVALUATING') ORDER BY id")]
         for run_id in stuck:
-            audit.log(self.store, self.clock, "run_recovered", run_id, reason="found EVALUATING on startup")
-            self.engine.evaluate(run_id, resume=True)
+            review = self._resolved_review(run_id)
+            audit.log(self.store, self.clock, "run_recovered", run_id,
+                      reason="found unfinished on startup", review=bool(review))
+            self.engine.evaluate(run_id, review=review, resume=True)
         out = worker.process(self)
         return {"recovered": stuck, **out}
+
+    def _resolved_review(self, run_id: str) -> dict | None:
+        """The reviewer's identity choice the run was being re-evaluated with, if any: the
+        run's newest review is resolved to a person and no decision was made after the one
+        that opened it (both are written in one transaction by Engine._persist)."""
+        s = self.store
+        r = s.one("SELECT doc FROM review_queue WHERE run_id=? AND status='resolved' ORDER BY id DESC LIMIT 1", (run_id,))
+        if not r:
+            return None
+        doc = json.loads(r["doc"])
+        latest = s.one("SELECT id FROM decisions WHERE run_id=? ORDER BY id DESC LIMIT 1", (run_id,))
+        if doc.get("choice") in (None, "none") or not latest or latest["id"] != doc.get("decision_id"):
+            return None
+        return {"person_id": doc["choice"], "reviewer": doc.get("reviewer", "revops")}
 
     # ---------------------------------------------------------------- signals
     def job_change(self, provider: str, payload: dict) -> dict:
@@ -188,7 +206,10 @@ class Service:
                 audit.log(s, self.clock, "review_resolved", r["run_id"], review=review_id, choice="none")
                 return {"review_id": review_id, "state": "SUPPRESSED"}
             audit.log(s, self.clock, "review_resolved", r["run_id"], review=review_id, choice=choice)
-        out = self.engine.evaluate(r["run_id"], review={"person_id": choice, "reviewer": reviewer})
+            # committed with the choice, so a crash before the decision leaves the run
+            # EVALUATING with a resolved review, which recover() resumes with that choice
+            state.transition(s, self.clock, r["run_id"], "EVALUATING", "review resolved")
+        out = self.engine.evaluate(r["run_id"], review={"person_id": choice, "reviewer": reviewer}, resume=True)
         worker.process(self)
         return self._fresh(out)
 

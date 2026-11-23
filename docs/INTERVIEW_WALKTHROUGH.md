@@ -94,7 +94,7 @@ The "agent" layer is thin on purpose. The model never picks a person, a play or 
 The run stays `ACCEPTED`. The row is retried, then dead-lettered and the run is flagged. Other cards still go out. Tests: `tests/test_outbox_and_ordering.py::test_crm_504_on_accept_does_not_return_500`, `::test_crm_failure_does_not_block_unrelated_slack_card`, `::test_crm_writeback_dead_letters_after_max_attempts`, `::test_crm_transient_failure_is_retried_and_written_exactly_once`.
 
 **2. "The process dies mid-decision. What happens?"**
-The run was committed `EVALUATING`, and the decision commits in one transaction with the next state. On restart, `Service.recover` re-evaluates runs left `EVALUATING`, once. A file database is no longer wiped on start. Test: `::test_file_db_survives_restart_and_stuck_run_is_recovered_once`. Limit: the sweeper is single-process; production needs leases.
+The run was committed `RECEIVED` at ingest and `EVALUATING` before the rules ran. The decision commits in one transaction with the next state. On restart, `Service.recover` evaluates runs left `RECEIVED` or `EVALUATING`, once. If a reviewer had already picked a person, recovery reuses that choice from `review_queue`. A file database is no longer wiped on start. Tests: `::test_file_db_survives_restart_and_stuck_run_is_recovered_once`, `::test_run_left_received_after_ingest_is_recovered_once`, `::test_review_choice_survives_crash_during_resumed_evaluation`. Limit: the sweeper is single-process; production needs leases.
 
 **3. "What if the model returns garbage?"**
 Unknown intent labels are dropped and confidence is clamped. A bad opener falls back to a template. A brief quote not found verbatim is rejected. Tests: `::test_invalid_intent_label_never_reaches_the_card`, `::test_intent_confidence_is_clamped`, `::test_anthropic_draft_opener_is_validated_by_the_engine`, `tests/test_reliability.py::test_unsupported_claim_is_rejected`.
@@ -107,7 +107,7 @@ A sweep over 24 labeled cases, now with a deterministic tune/holdout split. The 
 
 ## Verified vs proposed
 
-Verified by tests in this repo (54 tests, plus `make eval`):
+Verified by tests in this repo (56 tests, plus `make eval`):
 
 - dedupe, freshness, identity review, champion evidence, CRM-down hold
 - Slack search-before-post, CRM search-before-create, compensation on correction
